@@ -113,6 +113,21 @@ class WakeWordListener:
         if self._stream is None:
             self._stream = self._open_stream()
 
+        # Сбрасываем внутреннее состояние модели OWW, чтобы забыть старые предсказания
+        try:
+            self._oww_model.reset()
+        except Exception as e:
+            logger.warning("WakeWordListener: не удалось сбросить OWW модель: %s", e)
+
+        # Перезапускаем поток, чтобы очистить буферы PortAudio от старого звука (например, от воспроизведения TTS)
+        try:
+            if not self._stream.is_stopped():
+                self._stream.stop_stream()
+            self._stream.start_stream()
+        except Exception as e:
+            logger.error("WakeWordListener: ошибка перезапуска потока: %s", e)
+            raise
+
         logger.info("WakeWordListener: ожидаю wake word '%s'...", self._keyword)
         try:
             while True:
@@ -125,20 +140,32 @@ class WakeWordListener:
                 audio_array = np.frombuffer(pcm, dtype=np.int16)
                 prediction = self._oww_model.predict(audio_array)
                 
-                # prediction - это словарь с ключами названия модели и float значениями
-                # Пример: {'hey_jarvis_v0.1': 0.05}
-                # Ищем среди ключей нашу модель
                 for model_name, score in prediction.items():
                     if score >= self._sensitivity:
                         logger.info(
                             "WakeWordListener: wake word '%s' обнаружен (score=%.2f)", model_name, score
                         )
+                        # Останавливаем поток, чтобы он не копил звук во время обработки и озвучки ответа
+                        try:
+                            self._stream.stop_stream()
+                        except Exception as stop_err:
+                            logger.warning("WakeWordListener: не удалось остановить поток: %s", stop_err)
                         return True
         except KeyboardInterrupt:
             logger.info("WakeWordListener: прервано пользователем")
+            try:
+                if self._stream and not self._stream.is_stopped():
+                    self._stream.stop_stream()
+            except Exception:
+                pass
             raise
         except Exception as e:
             logger.error("WakeWordListener: ошибка в цикле прослушивания: %s", e)
+            try:
+                if self._stream and not self._stream.is_stopped():
+                    self._stream.stop_stream()
+            except Exception:
+                pass
             raise
 
     def close(self) -> None:
