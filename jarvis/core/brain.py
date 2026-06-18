@@ -129,6 +129,7 @@ class Brain:
             timeout=30,
         )
         response.raise_for_status()
+        response.encoding = 'utf-8'
 
         reasoning_chunks: list[str] = []
 

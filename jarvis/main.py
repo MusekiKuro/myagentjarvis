@@ -246,38 +246,78 @@ def _main_loop(components: dict[str, Any]) -> None:
                 else:
                     # Настоящий генератор
                     import re
-                    # Регулярка для фильтрации тегов "на лету" (упрощенная)
-                    tag_pattern = re.compile(r"<[^>]*>")
+                    from jarvis.core.executor import ACTION_REGEXPS
                     
-                    full_response_parts = []
-                    buffer = ""
-                    in_tag = False
+                    raw_accumulator = ""
+                    spoken_text = ""
                     
                     for chunk in response_gen:
-                        full_response_parts.append(chunk)
+                        raw_accumulator += chunk
                         
-                        # Простой парсинг на лету
-                        for char in chunk:
-                            if char == '<':
-                                in_tag = True
-                            elif char == '>':
-                                in_tag = False
-                                continue
-                                
-                            if not in_tag:
-                                buffer += char
-                                
-                                # Озвучиваем по готовности предложения
-                                if buffer and buffer[-1] in ('.', '!', '?') and len(buffer.strip()) > 5:
-                                    # Отправляем на озвучку в фоне
-                                    _speak_async(tts, buffer.strip())
-                                    buffer = ""
-                    
-                    # Озвучить остаток
-                    if buffer.strip():
-                        _speak_async(tts, buffer.strip())
+                        # Определяем безопасную границу (до первого незакрытого тега)
+                        safe_limit = len(raw_accumulator)
                         
-                    full_response = "".join(full_response_parts)
+                        # 1. Проверяем на незаконченный символ начала тега в конце строки
+                        last_lt = raw_accumulator.rfind('<')
+                        if last_lt != -1 and '>' not in raw_accumulator[last_lt:]:
+                            safe_limit = last_lt
+                            
+                        # 2. Проверяем на открытые, но еще не закрытые известные теги действий
+                        for tag in ["open_app", "open_url", "run_command", "python_code", "save_fact"]:
+                            # Ищем все индексы открытия
+                            start_tag_indices = []
+                            start_pos = 0
+                            while True:
+                                idx = raw_accumulator.find(f"<{tag}", start_pos)
+                                if idx == -1:
+                                    break
+                                start_tag_indices.append(idx)
+                                start_pos = idx + 1
+                                
+                            # Ищем все индексы закрытия
+                            end_tag_indices = []
+                            start_pos = 0
+                            while True:
+                                idx = raw_accumulator.find(f"</{tag}>", start_pos)
+                                if idx == -1:
+                                    break
+                                end_tag_indices.append(idx)
+                                start_pos = idx + 1
+                                
+                            if len(start_tag_indices) > len(end_tag_indices):
+                                unclosed_idx = start_tag_indices[-1]
+                                if unclosed_idx < safe_limit:
+                                    safe_limit = unclosed_idx
+                                    
+                        # Получаем безопасную часть и очищаем её от тегов действий
+                        safe_prefix = raw_accumulator[:safe_limit]
+                        clean_prefix = safe_prefix
+                        for regex in ACTION_REGEXPS.values():
+                            clean_prefix = regex.sub("", clean_prefix)
+                            
+                        # Ищем последнее законченное предложение в очищенном префиксе
+                        last_sentence_end = -1
+                        for char in ('.', '!', '?'):
+                            idx = clean_prefix.rfind(char)
+                            if idx > last_sentence_end:
+                                last_sentence_end = idx
+                                
+                        if last_sentence_end != -1 and last_sentence_end >= len(spoken_text):
+                            to_speak = clean_prefix[len(spoken_text):last_sentence_end + 1].strip()
+                            if to_speak:
+                                _speak_async(tts, to_speak)
+                            spoken_text = clean_prefix[:last_sentence_end + 1]
+                            
+                    # Озвучиваем финальный остаток после завершения стрима
+                    clean_final = raw_accumulator
+                    for regex in ACTION_REGEXPS.values():
+                        clean_final = regex.sub("", clean_final)
+                        
+                    to_speak_final = clean_final[len(spoken_text):].strip()
+                    if to_speak_final:
+                        _speak_async(tts, to_speak_final)
+                        
+                    full_response = raw_accumulator
 
                 logger.info("Ответ (ход %d): %r", turn + 1, full_response)
 
