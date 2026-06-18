@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────
+# JARVIS — голосовой ассистент
+# Все версии из раздела 4 документации
+# ──────────────────────────────────────────────────────────────
+
+# Claude API SDK
+anthropic>=0.25.0
+
+# STT на GPU (CUDA)
+faster-whisper>=1.0.0
+
+# Захват микрофона (wake word + запись)
+pyaudio>=0.2.14
+
+# Воспроизведение аудио
+sounddevice>=0.4.6
+
+# Чтение/запись WAV
+soundfile>=0.12.1
+
+# Wake word детектор (Picovoice)
+pvporcupine>=3.0.0
+
+# PyTorch + torchaudio с CUDA 12.1 — ставятся ОТДЕЛЬНОЙ командой
+# (см. README.md, шаг 2):
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Если раскомментировать ниже — будут CPU-only версии:
+# torch>=2.2.0
+# torchaudio>=2.2.0
+
+# Прочее
+python-dotenv>=1.0.0
+numpy>=1.26.0
