@@ -1,21 +1,45 @@
 """
-Модуль выполнения действий (инструментов) JARVIS.
-Принимает распарсенные теги от ИИ-мозга и выполняет их локально на ПК.
+Модуль выполнения действий (XML-теги) JARVIS.
+Принимает распарсенные теги от LLM и выполняет их локально на ПК.
+Для быстрых действий (запуск приложений, ссылок, сохранение фактов).
+Опасные операции (run_command, python_code) — голосовое подтверждение.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-import os
 import re
 import subprocess
 import sys
 import traceback
-import webbrowser
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .confirm import VoiceConfirm
+    from ..memory.long_term import LongTermMemory
 
 logger = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────────────────────
+# Глобальные зависимости (инициализируются из main.py)
+# ──────────────────────────────────────────────────────────────
+_voice_confirm: "VoiceConfirm | None" = None
+_long_term: "LongTermMemory | None" = None  # Bug B2 fix: используем существующий экземпляр
+
+
+def set_voice_confirm(vc: "VoiceConfirm") -> None:
+    """[Маин] Установить глобальный экземпляр голосового подтверждения."""
+    global _voice_confirm
+    _voice_confirm = vc
+    logger.info("Executor: VoiceConfirm установлен.")
+
+
+def set_long_term(ltm: "LongTermMemory") -> None:
+    """[Маин] Передать экземпляр LongTermMemory (Bug B2 fix)."""
+    global _long_term
+    _long_term = ltm
+    logger.info("Executor: LongTermMemory установлен.")
 
 # Регулярные выражения для поиска тегов действий
 ACTION_REGEXPS = {
@@ -28,53 +52,15 @@ ACTION_REGEXPS = {
 
 
 def open_app(app_name: str) -> str:
-    """Запустить приложение на Windows по имени или протоколу."""
-    app_name = app_name.strip()
-    app_name_lower = app_name.lower()
-
-    # Словарь известных приложений и их системных имен/протоколов
-    app_map = {
-        "whatsapp": "whatsapp:",
-        "ватсап": "whatsapp:",
-        "telegram": "tg:",
-        "телеграм": "tg:",
-        "notepad": "notepad.exe",
-        "блокнот": "notepad.exe",
-        "calc": "calc.exe",
-        "calculator": "calc.exe",
-        "калькулятор": "calc.exe",
-        "explorer": "explorer.exe",
-        "проводник": "explorer.exe",
-    }
-
-    target = app_map.get(app_name_lower, app_name)
-    logger.info("Executor: Запуск приложения %r (цель: %r)", app_name, target)
-
-    try:
-        # Протоколы Windows (tg:, whatsapp:) запускаются через start
-        if target.endswith(":") or target.startswith("shell:"):
-            os.system(f"start {target}")
-        else:
-            subprocess.Popen(target, shell=True)
-        return f"Успешно запущено приложение: {app_name}"
-    except Exception as e:
-        logger.error("Executor: Ошибка при запуске %r: %s", app_name, e)
-        return f"Ошибка при запуске {app_name}: {e}"
+    """Запустить приложение на Windows по имени или протоколу. Делегирует в tools/apps."""
+    from ..tools.apps import open_app as _open_app
+    return _open_app(app_name)
 
 
 def open_url(url: str) -> str:
-    """Открыть URL-ссылку в браузере по умолчанию."""
-    url = url.strip()
-    if not url.startswith("http://") and not url.startswith("https://"):
-        url = "https://" + url
-
-    logger.info("Executor: Открытие URL %r", url)
-    try:
-        webbrowser.open(url)
-        return f"Успешно открыта ссылка: {url}"
-    except Exception as e:
-        logger.error("Executor: Ошибка открытия ссылки %r: %s", url, e)
-        return f"Ошибка открытия ссылки {url}: {e}"
+    """Открыть URL-ссылку в браузере по умолчанию. Делегирует в tools/apps."""
+    from ..tools.apps import open_url as _open_url
+    return _open_url(url)
 
 
 def run_command(cmd: str) -> str:
@@ -84,11 +70,16 @@ def run_command(cmd: str) -> str:
 
     from jarvis import config
     if config.REQUIRE_ACTION_CONFIRMATION:
-        print(f"\n[ВНИМАНИЕ] Джарвис хочет выполнить команду терминала:\n  {cmd}")
-        ans = input("Разрешить? [y/N]: ").strip().lower()
-        if ans != 'y':
-            logger.info("Executor: Команда отклонена пользователем.")
-            return "Команда отменена пользователем."
+        if _voice_confirm is not None:
+            if not _voice_confirm.ask(f"Сэр, хочу выполнить команду терминала: {cmd}. Разрешаете?"):
+                logger.info("Executor: Команда отклонена пользователем.")
+                return "Команда отменена."
+        else:
+            # Fallback: консоль (VoiceConfirm ещё не инициализирован)
+            print(f"\n[ВНИМАНИЕ] Джарвис хочет выполнить команду: {cmd}")
+            ans = input("Разрешить? [y/N]: ").strip().lower()
+            if ans != 'y':
+                return "Команда отменена."
 
     logger.info("Executor: Выполнение команды %r", cmd)
 
@@ -138,11 +129,15 @@ def run_python(code: str) -> str:
 
     from jarvis import config
     if config.REQUIRE_ACTION_CONFIRMATION:
-        print(f"\n[ВНИМАНИЕ] Джарвис хочет запустить Python-код:\n{code}\n")
-        ans = input("Разрешить? [y/N]: ").strip().lower()
-        if ans != 'y':
-            logger.info("Executor: Python-код отклонен пользователем.")
-            return "Код отменен пользователем."
+        if _voice_confirm is not None:
+            if not _voice_confirm.ask(f"Сэр, хочу запустить Python-код. Разрешаете?"):
+                logger.info("Executor: Python-код отклонён пользователем.")
+                return "Код отменён."
+        else:
+            print(f"\n[ВНИМАНИЕ] Джарвис хочет запустить Python-код:\n{code}\n")
+            ans = input("Разрешить? [y/N]: ").strip().lower()
+            if ans != 'y':
+                return "Код отменён."
 
     logger.info("Executor: Запуск Python-кода")
 
@@ -229,9 +224,13 @@ def parse_and_execute(text: str) -> list[dict[str, str]]:
             key = key.strip()
             value = value.strip()
             try:
-                from jarvis.memory.long_term import LongTermMemory
-                with LongTermMemory() as ltm:
-                    ltm.save_fact(category, key, value)
+                # Bug B2 fix: используем инъекцированный экземпляр, если есть
+                if _long_term is not None:
+                    _long_term.save_fact(category, key, value)
+                else:
+                    from jarvis.memory.long_term import LongTermMemory
+                    with LongTermMemory() as ltm:
+                        ltm.save_fact(category, key, value)
                 result_str = f"Факт сохранён: [{category}] {key} = {value}"
             except Exception as e:
                 logger.error("Executor: Ошибка сохранения факта: %s", e)

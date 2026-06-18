@@ -17,7 +17,7 @@ from ..memory.short_term import ShortTermMemory
 logger = logging.getLogger(__name__)
 
 
-# Системный промпт — передаётся дословно
+# Системный промпт — базовая часть (характер, стиль общения)
 SYSTEM_PROMPT = (
     "Ты — Джарвис, персональный голосовой ассистент и управляющий компьютера Сэра. "
     "Веди себя как профессиональный дворецкий высшего класса. "
@@ -27,19 +27,18 @@ SYSTEM_PROMPT = (
     "3. Будь точен и информативен, избегай воды.\n"
     "4. Язык — только русский.\n"
     "5. Начинай ответ сразу с сути, не с приветствия.\n"
-    "6. Для управления компьютером Сэра используй специальные XML-теги. Вставляй их прямо в ответ. Они будут выполнены локально.\n"
-    "Доступные действия (XML-теги):\n"
-    "  - `<open_app>имя_приложения</open_app>` — Открыть программу (whatsapp, telegram, notepad, calc, explorer).\n"
-    "  - `<open_url>ссылка</open_url>` — Открыть ссылку в браузере (например, <open_url>youtube.com</open_url>).\n"
-    "  - `<run_command>команда</run_command>` — Выполнить команду терминала Windows (cmd/powershell).\n"
-    "  - `<python_code>код_python</python_code>` — Выполнить Python-код для вычислений, работы с файлами, автоматизации. Вывод (stdout/переменные) вернется тебе следующим сообщением.\n"
-    "  - `<save_fact category=\"категория\" key=\"ключ\">значение</save_fact>` — Сохранить факт о пользователе в долговременную память (категории: person, preference).\n"
-    "Правило тегов: Если нужно выполнить действие, ОБЯЗАТЕЛЬНО пиши соответствующий тег. Можешь комбинировать теги.\n"
+    "\n"
+    "Ты умеешь не только отвечать, но и выполнять задачи на компьютере Сэра через инструменты.\n"
+    "Когда задача требует действия (поиск, открыть файл, запустить программу, управить системой) — вызывай инструмент.\n"
+    "Для вызова инструмента верни ТОЛЬКО валидный JSON без пояснений и без текста вокруг:\n"
+    '{"action": "tool_call", "tool": "<имя>", "params": {<параметры>}}\n'
+    "Для обычного текстового ответа — верни только текст без JSON.\n"
+    "\n"
+    "Также доступны XML-теги для быстрых действий:\n"
+    "  - `<save_fact category=\"категория\" key=\"ключ\">значение</save_fact>` — Сохранить факт (категории: person, preference).\n"
     "Примеры стиля:\n"
-    "  'Сэр, запускаю WhatsApp. <open_app>whatsapp</open_app>'\n"
-    "  'Сэр, открываю YouTube. <open_url>youtube.com</open_url>'\n"
-    "  'Сэр, запомнил ваш любимый цвет. <save_fact category=\"preference\" key=\"color\">красный</save_fact>'\n"
-    "  'Сэр, выполняю вычисления. <python_code>print(256 * 1024)</python_code>'"
+    "  'Сэр, нахожу результаты.'  ← при вызове tool: {\"action\": \"tool_call\", \"tool\": \"search\", \"params\": {\"query\": \"...\"}}\n"
+    "  'Сэр, запомнил. <save_fact category=\"preference\" key=\"color\">красный</save_fact>'  ← при сохранении факта"
 )
 
 
@@ -63,6 +62,7 @@ class Brain:
         self._model = model or config.OPENROUTER_MODEL
         self._max_tokens = max_tokens or config.OPENROUTER_MAX_TOKENS
         self._short_term = short_term or ShortTermMemory()
+        self._last_reasoning: str = ""  # Bug B3 fix: сохраняется из _stream_api
 
         logger.info(
             "Brain: инициализирован (model=%s, max_tokens=%d, history_limit=%d)",
@@ -85,10 +85,13 @@ class Brain:
     # ──────────────────────────────────────────────────────────
     # Системный промпт с учётом long-term памяти
     # ──────────────────────────────────────────────────────────
-    def _build_system_prompt(self, long_term_context: str = "") -> str:
+    def _build_system_prompt(self, long_term_context: str = "", tools_prompt: str = "") -> str:
+        parts = [SYSTEM_PROMPT]
+        if tools_prompt:
+            parts.append(tools_prompt)
         if long_term_context:
-            return f"{SYSTEM_PROMPT}\n\n{long_term_context}"
-        return SYSTEM_PROMPT
+            parts.append(long_term_context)
+        return "\n\n".join(parts)
 
     # ──────────────────────────────────────────────────────────
     # Низкоуровневый вызов API (без побочных эффектов на историю)
@@ -113,6 +116,7 @@ class Brain:
             "messages": [{"role": "system", "content": system_prompt}] + messages,
             "reasoning": {"enabled": True},
             "stream": True,
+            "max_tokens": self._max_tokens,  # Bug B1 fix
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -149,9 +153,10 @@ class Brain:
                 except json.JSONDecodeError:
                     pass
 
-        # Мы не возвращаем reasoning_details напрямую из генератора, 
-        # но генератор yield'ит только content. 
-        # Для простоты в стриминге мы игнорируем reasoning в ответе (или его можно вернуть хитрым способом).
+        # Bug B3 fix: сохраняем reasoning в атрибут, чтобы не потерять при генераторе
+        if reasoning_chunks:
+            self._last_reasoning = "".join(reasoning_chunks).strip()
+            logger.debug("Brain._stream_api: reasoning %d символов", len(self._last_reasoning))
 
     def _blocking_api(
         self, system_prompt: str, messages: list[dict[str, Any]]
@@ -162,6 +167,7 @@ class Brain:
             "messages": [{"role": "system", "content": system_prompt}] + messages,
             "reasoning": {"enabled": True},
             "stream": False,
+            "max_tokens": self._max_tokens,  # Bug B1 fix
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",

@@ -25,7 +25,10 @@ from jarvis.core import (
     record_until_silence,
     stop_playback,
 )
+from jarvis.core.confirm import VoiceConfirm, set_voice_confirm as _set_voice_confirm_global
+from jarvis.core import executor as _executor
 from jarvis.memory import LongTermMemory, ShortTermMemory
+from jarvis.tools import ToolDispatcher
 
 
 # ──────────────────────────────────────────────────────────────
@@ -138,6 +141,9 @@ def _init_components() -> dict[str, Any]:
                 "Понял, Сэр.",
                 "Не удалось распознать речь, Сэр.",
                 "До свидания, Сэр.",
+                "Принято, отменяю.",
+                "Сэр, не расслышал. Да или нет?",
+                "Отменяю для безопасности.",
                 config.GREETING_TEXT,
             ]
         )
@@ -145,8 +151,123 @@ def _init_components() -> dict[str, Any]:
         logger.error("Не удалось инициализировать TextToSpeech: %s", e)
         raise
 
+    # Голосовое подтверждение
+    def _speak_blocking(text: str) -> None:
+        """Блокирующая озвучка для VoiceConfirm."""
+        try:
+            wav = components["tts"].synthesize(text)
+            if wav:
+                play_audio(wav)
+        except Exception as err:
+            logger.warning("Ошибка озвучивания подтверждения: %s", err)
+
+    try:
+        vc = VoiceConfirm(
+            tts=components["tts"],
+            stt=components["stt"],
+            speak_fn=_speak_blocking,
+        )
+        components["voice_confirm"] = vc
+        # Инъекцируем в executor и глобальный core/confirm
+        _executor.set_voice_confirm(vc)
+        _set_voice_confirm_global(vc)
+        _executor.set_long_term(components["memory_long"])  # Bug B2 fix
+        logger.info("VoiceConfirm: инициализирован")
+    except Exception as e:
+        logger.warning("Не удалось инициализировать VoiceConfirm: %s", e)
+        components["voice_confirm"] = None
+
+    # Tool Dispatcher (агентские инструменты)
+    try:
+        dispatcher = ToolDispatcher()
+        components["dispatcher"] = dispatcher
+        registered = list(dispatcher.tools.keys())
+        logger.info("ToolDispatcher: зарегистрировано %d инструментов: %s", len(registered), registered)
+    except Exception as e:
+        logger.warning("Не удалось инициализировать ToolDispatcher: %s", e)
+        components["dispatcher"] = None
+
     logger.info("Все компоненты инициализированы")
     return components
+
+
+# ──────────────────────────────────────────────────────────────
+# Гибридный стриминг
+# ──────────────────────────────────────────────────────────────
+def _stream_and_detect(response_gen: Any, tts: TextToSpeech) -> tuple[str, str]:
+    """
+    Гибридный обработчик стриминга.
+    Определяет тип ответа (json или текст) по первым символам.
+    Для текста — воспроизводит потоково через TTS.
+    Для JSON — накапливает молча.
+    """
+    raw_accumulator = ""
+    spoken_text = ""
+    response_type = "unknown"
+
+    from jarvis.core.executor import ACTION_REGEXPS
+
+    for chunk in response_gen:
+        raw_accumulator += chunk
+
+        # Определяем тип ответа по первым символам
+        if response_type == "unknown":
+            first_char = raw_accumulator.strip()
+            if first_char:
+                if first_char.startswith("{") or first_char.startswith("```"):
+                    response_type = "json"
+                else:
+                    response_type = "text"
+
+        if response_type == "text":
+            # Безопасный стриминг текста (без XML-тегов действий) для TTS
+            safe_limit = len(raw_accumulator)
+            
+            last_lt = raw_accumulator.rfind('<')
+            if last_lt != -1 and '>' not in raw_accumulator[last_lt:]:
+                safe_limit = last_lt
+                
+            for tag in ["open_app", "open_url", "run_command", "python_code", "save_fact"]:
+                start_pos = 0
+                while True:
+                    idx = raw_accumulator.find(f"<{tag}", start_pos)
+                    if idx == -1: break
+                    end_idx = raw_accumulator.find(f"</{tag}>", idx)
+                    if end_idx == -1 and idx < safe_limit:
+                        safe_limit = idx
+                    start_pos = idx + 1
+                    
+            safe_prefix = raw_accumulator[:safe_limit]
+            clean_prefix = safe_prefix
+            for regex in ACTION_REGEXPS.values():
+                clean_prefix = regex.sub("", clean_prefix)
+                
+            last_sentence_end = -1
+            for char in ('.', '!', '?'):
+                idx = clean_prefix.rfind(char)
+                if idx > last_sentence_end:
+                    last_sentence_end = idx
+                    
+            if last_sentence_end != -1 and last_sentence_end >= len(spoken_text):
+                to_speak = clean_prefix[len(spoken_text):last_sentence_end + 1].strip()
+                if to_speak:
+                    _speak_async(tts, to_speak)
+                spoken_text = clean_prefix[:last_sentence_end + 1]
+
+    # Обработка остатка
+    if response_type == "text":
+        clean_final = raw_accumulator
+        for regex in ACTION_REGEXPS.values():
+            clean_final = regex.sub("", clean_final)
+            
+        to_speak_final = clean_final[len(spoken_text):].strip()
+        if to_speak_final:
+            _speak_async(tts, to_speak_final)
+            
+    if response_type == "unknown":
+        response_type = "text"
+
+    return raw_accumulator, response_type
 
 
 # ──────────────────────────────────────────────────────────────
@@ -223,16 +344,18 @@ def _main_loop(components: dict[str, Any]) -> None:
             # 3g. контекст из долгосрочной памяти
             long_ctx = long_term.to_context_string()
 
-            # Агентный цикл выполнения действий (ReAct)
+            # Дескриптор инструментов для системного промпта
+            tools_prompt = dispatcher.get_tools_prompt() if dispatcher else ""
+
+            # Агентный ReAct-цикл
             current_input = text
-            max_agent_turns = 5
-            for turn in range(max_agent_turns):
+            for turn in range(config.AGENT_MAX_TURNS):
                 try:
                     response_gen = brain.get_response_with_retry(
                         user_text=current_input,
                         long_term_context=long_ctx,
                         max_attempts=3,
-                        stream=True,  # Включаем настоящий стриминг
+                        stream=True,
                     )
                 except Exception as e:
                     logger.error("Ошибка Brain: %s", e)
@@ -240,107 +363,49 @@ def _main_loop(components: dict[str, Any]) -> None:
                     break
 
                 if isinstance(response_gen, str):
-                    # Fallback-ответ (в случае ошибки возвращается строка)
+                    # Fallback-ответ (ошибка)
                     full_response = response_gen
+                    response_type = "text"
                     _speak_async(tts, full_response)
                 else:
-                    # Настоящий генератор
-                    import re
-                    from jarvis.core.executor import ACTION_REGEXPS
-                    
-                    raw_accumulator = ""
-                    spoken_text = ""
-                    
-                    for chunk in response_gen:
-                        raw_accumulator += chunk
-                        
-                        # Определяем безопасную границу (до первого незакрытого тега)
-                        safe_limit = len(raw_accumulator)
-                        
-                        # 1. Проверяем на незаконченный символ начала тега в конце строки
-                        last_lt = raw_accumulator.rfind('<')
-                        if last_lt != -1 and '>' not in raw_accumulator[last_lt:]:
-                            safe_limit = last_lt
-                            
-                        # 2. Проверяем на открытые, но еще не закрытые известные теги действий
-                        for tag in ["open_app", "open_url", "run_command", "python_code", "save_fact"]:
-                            # Ищем все индексы открытия
-                            start_tag_indices = []
-                            start_pos = 0
-                            while True:
-                                idx = raw_accumulator.find(f"<{tag}", start_pos)
-                                if idx == -1:
-                                    break
-                                start_tag_indices.append(idx)
-                                start_pos = idx + 1
-                                
-                            # Ищем все индексы закрытия
-                            end_tag_indices = []
-                            start_pos = 0
-                            while True:
-                                idx = raw_accumulator.find(f"</{tag}>", start_pos)
-                                if idx == -1:
-                                    break
-                                end_tag_indices.append(idx)
-                                start_pos = idx + 1
-                                
-                            if len(start_tag_indices) > len(end_tag_indices):
-                                unclosed_idx = start_tag_indices[-1]
-                                if unclosed_idx < safe_limit:
-                                    safe_limit = unclosed_idx
-                                    
-                        # Получаем безопасную часть и очищаем её от тегов действий
-                        safe_prefix = raw_accumulator[:safe_limit]
-                        clean_prefix = safe_prefix
-                        for regex in ACTION_REGEXPS.values():
-                            clean_prefix = regex.sub("", clean_prefix)
-                            
-                        # Ищем последнее законченное предложение в очищенном префиксе
-                        last_sentence_end = -1
-                        for char in ('.', '!', '?'):
-                            idx = clean_prefix.rfind(char)
-                            if idx > last_sentence_end:
-                                last_sentence_end = idx
-                                
-                        if last_sentence_end != -1 and last_sentence_end >= len(spoken_text):
-                            to_speak = clean_prefix[len(spoken_text):last_sentence_end + 1].strip()
-                            if to_speak:
-                                _speak_async(tts, to_speak)
-                            spoken_text = clean_prefix[:last_sentence_end + 1]
-                            
-                    # Озвучиваем финальный остаток после завершения стрима
-                    clean_final = raw_accumulator
-                    for regex in ACTION_REGEXPS.values():
-                        clean_final = regex.sub("", clean_final)
-                        
-                    to_speak_final = clean_final[len(spoken_text):].strip()
-                    if to_speak_final:
-                        _speak_async(tts, to_speak_final)
-                        
-                    full_response = raw_accumulator
+                    # Гибридный стриминг: JSON или текст
+                    full_response, response_type = _stream_and_detect(response_gen, tts)
 
-                logger.info("Ответ (ход %d): %r", turn + 1, full_response)
+                logger.info("Ответ (ход %d, тип=%s): %r", turn + 1, response_type, full_response[:200])
 
-                # Выполняем действия, если они есть в тексте
-                from jarvis.core.executor import parse_and_execute, ACTION_REGEXPS
+                if response_type == "json" and dispatcher:
+                    # Агентский tool_call — выполняем инструмент
+                    parsed = dispatcher.parse_response(full_response)
+                    if parsed.type == "tool_call" and parsed.tool_call:
+                        tc = parsed.tool_call
+                        logger.info("Тоол-вызов: %r, params=%r", tc.tool, tc.params)
+                        result = dispatcher.execute(tc)
+                        logger.info("Результат %r: %r", tc.tool, result[:200])
+                        current_input = f"[Результат инструмента {tc.tool}]:\n{result}"
+                        time.sleep(0.3)
+                        continue
+                    else:
+                        # JSON не распознан — выходим
+                        break
+
+                # Обычный текст — ищем XML-теги (fallback)
+                from jarvis.core.executor import parse_and_execute
                 actions = parse_and_execute(full_response)
 
                 if not actions:
-                    # Действий больше нет, завершаем цикл
                     break
 
-                # Формируем результаты выполнения для отправки обратно
+                # Есть XML-действия — формируем наблюдение
                 observation_parts = []
                 for act in actions:
                     observation_parts.append(
-                        f"[Результат действия {act['type']} для '{act['param']}']:\n{act['result']}"
+                        f"[Результат {act['type']} '{act['param']}']:\n{act['result']}"
                     )
                 current_input = "\n\n".join(observation_parts)
-                logger.info("Направляю результаты выполнения обратно в Brain: %r", current_input)
-                # Короткая пауза перед следующим шагом
+                logger.info("Направляю результаты XML-действий в Brain: %r", current_input[:200])
                 time.sleep(0.5)
 
-            # Факты извлекаются теперь только через теги <save_fact> от ИИ
+            # Факты извлекаются через теги <save_fact> от ИИ
             pass
 
         except KeyboardInterrupt:

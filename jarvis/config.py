@@ -36,7 +36,7 @@ WHISPER_VAD_FILTER: bool = True
 # OpenRouter API / Brain
 # ──────────────────────────────────────────────────────────────
 OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free")
-OPENROUTER_MAX_TOKENS: int = 500
+OPENROUTER_MAX_TOKENS: int = int(os.getenv("OPENROUTER_MAX_TOKENS", "1024"))
 OPENROUTER_STREAM: bool = True
 
 # ──────────────────────────────────────────────────────────────
@@ -83,6 +83,13 @@ CMD_CLEAR_HISTORY = ("очисти историю", "забудь", "новый 
 # ──────────────────────────────────────────────────────────────
 GREETING_TEXT: str = "Джарвис активирован. Слушаю, Сэр."
 REQUIRE_ACTION_CONFIRMATION: bool = os.getenv("REQUIRE_ACTION_CONFIRMATION", "True").lower() in ("true", "1", "yes")
+
+# ──────────────────────────────────────────────────────────────
+# Агентский режим
+# ──────────────────────────────────────────────────────────────
+AGENT_MAX_TURNS: int = int(os.getenv("AGENT_MAX_TURNS", "7"))  # макс. ходов ReAct-цикла
+VOICE_CONFIRM_MAX_SECONDS: int = int(os.getenv("VOICE_CONFIRM_MAX_SECONDS", "5"))  # макс. секунд записи при подтверждении
+PLAYWRIGHT_USER_DATA_DIR: Path = _PROJECT_ROOT / os.getenv("PLAYWRIGHT_USER_DATA_DIR", "playwright_profile")
 
 
 # ──────────────────────────────────────────────────────────────
