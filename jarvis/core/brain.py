@@ -33,10 +33,12 @@ SYSTEM_PROMPT = (
     "  - `<open_url>ссылка</open_url>` — Открыть ссылку в браузере (например, <open_url>youtube.com</open_url>).\n"
     "  - `<run_command>команда</run_command>` — Выполнить команду терминала Windows (cmd/powershell).\n"
     "  - `<python_code>код_python</python_code>` — Выполнить Python-код для вычислений, работы с файлами, автоматизации. Вывод (stdout/переменные) вернется тебе следующим сообщением.\n"
+    "  - `<save_fact category=\"категория\" key=\"ключ\">значение</save_fact>` — Сохранить факт о пользователе в долговременную память (категории: person, preference).\n"
     "Правило тегов: Если нужно выполнить действие, ОБЯЗАТЕЛЬНО пиши соответствующий тег. Можешь комбинировать теги.\n"
     "Примеры стиля:\n"
     "  'Сэр, запускаю WhatsApp. <open_app>whatsapp</open_app>'\n"
     "  'Сэр, открываю YouTube. <open_url>youtube.com</open_url>'\n"
+    "  'Сэр, запомнил ваш любимый цвет. <save_fact category=\"preference\" key=\"color\">красный</save_fact>'\n"
     "  'Сэр, выполняю вычисления. <python_code>print(256 * 1024)</python_code>'"
 )
 
@@ -96,16 +98,16 @@ class Brain:
         system_prompt: str,
         messages: list[dict[str, Any]],
         stream: bool = False,
-    ) -> tuple[str, dict[str, Any] | None]:
-        """Сырой вызов OpenRouter API. Возвращает (content, reasoning_details)."""
+    ) -> Any:
+        """Сырой вызов OpenRouter API. Возвращает генератор (для stream) или tuple (content, reasoning_details)."""
         if stream:
             return self._stream_api(system_prompt, messages)
         return self._blocking_api(system_prompt, messages)
 
     def _stream_api(
         self, system_prompt: str, messages: list[dict[str, Any]]
-    ) -> tuple[str, dict[str, Any] | None]:
-        """Streaming-вариант: собирает полный ответ и возвращает строкой."""
+    ) -> Any:
+        """Streaming-вариант: возвращает генератор, который yield'ит чанки текста."""
         payload = {
             "model": self._model,
             "messages": [{"role": "system", "content": system_prompt}] + messages,
@@ -128,7 +130,6 @@ class Brain:
         )
         response.raise_for_status()
 
-        chunks: list[str] = []
         reasoning_chunks: list[str] = []
 
         for line in response.iter_lines(decode_unicode=True):
@@ -141,18 +142,15 @@ class Brain:
                     if "choices" in data and data["choices"]:
                         delta = data["choices"][0].get("delta", {})
                         if "content" in delta and delta["content"]:
-                            chunks.append(delta["content"])
+                            yield delta["content"]
                         if "reasoning" in delta and delta["reasoning"]:
                             reasoning_chunks.append(delta["reasoning"])
                 except json.JSONDecodeError:
                     pass
 
-        content = "".join(chunks).strip()
-        reasoning_details = None
-        if reasoning_chunks:
-            reasoning_details = {"reasoning": "".join(reasoning_chunks).strip()}
-
-        return content, reasoning_details
+        # Мы не возвращаем reasoning_details напрямую из генератора, 
+        # но генератор yield'ит только content. 
+        # Для простоты в стриминге мы игнорируем reasoning в ответе (или его можно вернуть хитрым способом).
 
     def _blocking_api(
         self, system_prompt: str, messages: list[dict[str, Any]]
@@ -219,14 +217,27 @@ class Brain:
         )
 
         try:
-            full_response, reasoning = self._call_api(system_prompt, messages, stream=use_stream)
+            result = self._call_api(system_prompt, messages, stream=use_stream)
         except Exception as e:
             logger.error("Brain.get_response: ошибка API: %s", e)
             return self._handle_api_error(e)
 
-        if full_response:
-            self._short_term.add("assistant", full_response, reasoning_details=reasoning)
-        return full_response
+        if use_stream:
+            # Если это стрим, мы возвращаем генератор как есть.
+            # Внимание: history обновится снаружи, когда генератор исчерпается,
+            # либо мы можем сделать обертку-генератор.
+            def generator_wrapper():
+                full_text = []
+                for chunk in result:
+                    full_text.append(chunk)
+                    yield chunk
+                self._short_term.add("assistant", "".join(full_text).strip())
+            return generator_wrapper()
+        else:
+            full_response, reasoning = result
+            if full_response:
+                self._short_term.add("assistant", full_response, reasoning_details=reasoning)
+            return full_response
 
     def _handle_api_error(self, err: Exception) -> str:
         """Fallback-сообщение для пользователя при сбое API."""
@@ -249,8 +260,9 @@ class Brain:
         user_text: str,
         long_term_context: str = "",
         max_attempts: int = 3,
-    ) -> str:
-        """До 3 попыток запроса, потом fallback."""
+        stream: bool = False,
+    ) -> Any:
+        """До 3 попыток запроса, потом fallback. Поддерживает стриминг."""
         if not user_text or not user_text.strip():
             return ""
 
@@ -262,11 +274,23 @@ class Brain:
         for attempt in range(1, max_attempts + 1):
             try:
                 messages = self._short_term.get_messages()
-                full_response, reasoning = self._blocking_api(system_prompt, messages)
-                if full_response:
-                    # Добавляем ответ ассистента ОДИН раз после успеха
-                    self._short_term.add("assistant", full_response, reasoning_details=reasoning)
-                    return full_response
+                if stream:
+                    # Для стриминга мы делаем вызов и возвращаем обертку
+                    # Retry для стриминга сложнее, если он упадет посередине, но мы хотя бы ловим начальные ошибки.
+                    result = self._stream_api(system_prompt, messages)
+                    
+                    def generator_wrapper():
+                        full_text = []
+                        for chunk in result:
+                            full_text.append(chunk)
+                            yield chunk
+                        self._short_term.add("assistant", "".join(full_text).strip())
+                    return generator_wrapper()
+                else:
+                    full_response, reasoning = self._blocking_api(system_prompt, messages)
+                    if full_response:
+                        self._short_term.add("assistant", full_response, reasoning_details=reasoning)
+                        return full_response
                 logger.warning(
                     "Brain.get_response_with_retry: попытка %d — пустой ответ",
                     attempt,

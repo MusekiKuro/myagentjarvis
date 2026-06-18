@@ -3,8 +3,8 @@
 # Все версии из раздела 4 документации
 # ──────────────────────────────────────────────────────────────
 
-# Claude API SDK
-anthropic>=0.25.0
+# OpenRouter API requests
+requests>=2.31.0
 
 # STT на GPU (CUDA)
 faster-whisper>=1.0.0
@@ -18,8 +18,8 @@ sounddevice>=0.4.6
 # Чтение/запись WAV
 soundfile>=0.12.1
 
-# Wake word детектор (Picovoice)
-pvporcupine>=3.0.0
+# Wake word детектор
+openwakeword>=0.6.0
 
 # PyTorch + torchaudio с CUDA 12.1 — ставятся ОТДЕЛЬНОЙ командой
 # (см. README.md, шаг 2):

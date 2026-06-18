@@ -1,7 +1,7 @@
 # JARVIS — Персональный голосовой ИИ-ассистент
 
 Локальный голосовой ассистент в стиле дворецкого для Windows с GPU NVIDIA.
-Слышит команду → распознаёт через Whisper на GPU → отвечает через Claude API
+Слышит команду → распознаёт через Whisper на GPU → отвечает через OpenRouter API
 → озвучивает локально через Silero TTS.
 
 ---
@@ -60,8 +60,7 @@ notepad .env
 
 Укажите в файле:
 
-- **`ANTHROPIC_API_KEY`** — получите на [console.anthropic.com](https://console.anthropic.com)
-- **`PORCUPINE_ACCESS_KEY`** — бесплатно на [picovoice.ai](https://picovoice.ai)
+- **`OPENROUTER_API_KEY`** — получите на [openrouter.ai](https://openrouter.ai)
 
 Опционально:
 - `SILERO_SPEAKER` — `aidar` (мужской), `baya`/`kseniya`/`xenia` (женские)
@@ -100,7 +99,7 @@ python main.py
 - «Я люблю кофе» → `preference.likes = кофе»
 - и т.д.
 
-Эти факты автоматически подмешиваются в контекст Claude.
+Эти факты автоматически подмешиваются в контекст ИИ.
 
 ---
 
@@ -115,9 +114,9 @@ jarvis/
 ├── README.md                # Этот файл
 ├── core/
 │   ├── __init__.py
-│   ├── listener.py          # Wake word (Porcupine) + запись с VAD
+│   ├── listener.py          # Wake word (OpenWakeWord) + запись с VAD
 │   ├── stt.py               # faster-whisper STT
-│   ├── brain.py             # Claude API + системный промпт
+│   ├── brain.py             # OpenRouter API + системный промпт
 │   ├── tts.py               # Silero TTS (torch.hub)
 │   └── speaker.py           # Воспроизведение через sounddevice
 └── memory/
@@ -139,7 +138,7 @@ jarvis/
 [Оркестратор — main.py]
     ↕ SQLite — краткосрочная и долгосрочная память
 
-    ↓ Anthropic SDK — Claude claude-sonnet-4-6 (streaming)
+    ↓ OpenRouter API — генерация ответа (streaming)
 
     ↓ Silero TTS (CPU/GPU) — Text-to-Speech
     ↓ sounddevice — воспроизведение
@@ -147,10 +146,10 @@ jarvis/
 [Динамики]
 ```
 
-1. **Porcupine** слушает микрофон, почти не нагружая CPU.
+1. **OpenWakeWord** слушает микрофон, почти не нагружая CPU.
 2. После «Джарвис» — VAD пишет речь, пока не наступит тишина 1.5 сек.
 3. **faster-whisper** транскрибирует аудио на GPU (< 1 сек).
-4. **Claude** (streaming) генерирует ответ в стиле дворецкого.
+4. **LLM** (через OpenRouter) генерирует ответ в стиле дворецкого.
 5. **Silero TTS** синтезирует голос локально, без интернета.
 6. **sounddevice** проигрывает WAV через динамики.
 
@@ -171,9 +170,9 @@ python -c "import torch; print(torch.version.cuda)"
 ```
 Должно быть `12.1` или выше. Если нет — переустановите torch по шагу 2.
 
-### `pvporcupine` — `Invalid access key`
+### Проблема с ключом OpenRouter
 
-Проверьте `PORCUPINE_ACCESS_KEY` в `.env` — он отличается от шаблона.
+Проверьте `OPENROUTER_API_KEY` в `.env` — он должен быть действительным ключом от OpenRouter.
 
 ### Silero не загружается
 

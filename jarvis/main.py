@@ -228,35 +228,62 @@ def _main_loop(components: dict[str, Any]) -> None:
             max_agent_turns = 5
             for turn in range(max_agent_turns):
                 try:
-                    response = brain.get_response_with_retry(
+                    response_gen = brain.get_response_with_retry(
                         user_text=current_input,
                         long_term_context=long_ctx,
                         max_attempts=3,
+                        stream=True,  # Включаем настоящий стриминг
                     )
                 except Exception as e:
                     logger.error("Ошибка Brain: %s", e)
-                    response = "Сэр, произошёл сбой. Попробуйте ещё раз."
+                    _speak_async(tts, "Сэр, произошёл сбой. Попробуйте ещё раз.")
                     break
 
-                if not response:
-                    response = "Сэр, не удалось получить ответ."
-                    break
+                if isinstance(response_gen, str):
+                    # Fallback-ответ (в случае ошибки возвращается строка)
+                    full_response = response_gen
+                    _speak_async(tts, full_response)
+                else:
+                    # Настоящий генератор
+                    import re
+                    # Регулярка для фильтрации тегов "на лету" (упрощенная)
+                    tag_pattern = re.compile(r"<[^>]*>")
+                    
+                    full_response_parts = []
+                    buffer = ""
+                    in_tag = False
+                    
+                    for chunk in response_gen:
+                        full_response_parts.append(chunk)
+                        
+                        # Простой парсинг на лету
+                        for char in chunk:
+                            if char == '<':
+                                in_tag = True
+                            elif char == '>':
+                                in_tag = False
+                                continue
+                                
+                            if not in_tag:
+                                buffer += char
+                                
+                                # Озвучиваем по готовности предложения
+                                if buffer and buffer[-1] in ('.', '!', '?') and len(buffer.strip()) > 5:
+                                    # Отправляем на озвучку в фоне
+                                    _speak_async(tts, buffer.strip())
+                                    buffer = ""
+                    
+                    # Озвучить остаток
+                    if buffer.strip():
+                        _speak_async(tts, buffer.strip())
+                        
+                    full_response = "".join(full_response_parts)
 
-                logger.info("Ответ (ход %d): %r", turn + 1, response)
+                logger.info("Ответ (ход %d): %r", turn + 1, full_response)
 
                 # Выполняем действия, если они есть в тексте
-                import re
                 from jarvis.core.executor import parse_and_execute, ACTION_REGEXPS
-                actions = parse_and_execute(response)
-
-                # Очищаем реплику ИИ от всех тегов действий перед отправкой на озвучку
-                spoken_response = response
-                for regex in ACTION_REGEXPS.values():
-                    spoken_response = regex.sub("", spoken_response)
-                spoken_response = re.sub(r"\s+", " ", spoken_response).strip()
-
-                if spoken_response:
-                    _speak_async(tts, spoken_response)
+                actions = parse_and_execute(full_response)
 
                 if not actions:
                     # Действий больше нет, завершаем цикл
@@ -273,13 +300,8 @@ def _main_loop(components: dict[str, Any]) -> None:
                 # Короткая пауза перед следующим шагом
                 time.sleep(0.5)
 
-            # 3i. извлечь и сохранить факты
-            try:
-                new_facts = long_term.extract_and_save(text)
-                if new_facts:
-                    logger.info("Запомнил %d новых фактов", len(new_facts))
-            except Exception as e:
-                logger.warning("Ошибка извлечения фактов: %s", e)
+            # Факты извлекаются теперь только через теги <save_fact> от ИИ
+            pass
 
         except KeyboardInterrupt:
             raise

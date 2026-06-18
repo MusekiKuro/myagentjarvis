@@ -83,6 +83,7 @@ class TestRunCommand:
     """Tests for system command runner."""
 
     @patch("subprocess.run")
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_command_success(self, mock_run):
         """Successful command should return stdout."""
         mock_process = MagicMock()
@@ -95,6 +96,7 @@ class TestRunCommand:
         assert "hello world" in res
 
     @patch("subprocess.run")
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_command_cp866_fallback(self, mock_run):
         """Should decode output in CP866 encoding if present."""
         mock_process = MagicMock()
@@ -107,6 +109,7 @@ class TestRunCommand:
         assert "Привет" in res
 
     @patch("subprocess.run")
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_command_timeout(self, mock_run):
         """Should return timeout error message."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=15)
@@ -117,12 +120,14 @@ class TestRunCommand:
 class TestRunPython:
     """Tests for Python code runner."""
 
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_python_print(self):
         """Python print should capture stdout."""
         code = "print(10 + 20)"
         res = run_python(code)
         assert res == "30"
 
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_python_variables_fallback(self):
         """If no stdout, should return local variables."""
         code = "x = 42\ny = 'hello'"
@@ -131,12 +136,14 @@ class TestRunPython:
         assert "'x': 42" in res
         assert "'y': 'hello'" in res
 
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_python_no_output_no_vars(self):
         """If no output and no variables, should return success message."""
         code = "pass"
         res = run_python(code)
         assert "успешно без вывода" in res
 
+    @patch("jarvis.config.REQUIRE_ACTION_CONFIRMATION", False)
     def test_run_python_error(self):
         """Syntax and runtime errors should return traceback."""
         code = "1 / 0"
@@ -166,3 +173,18 @@ class TestParseAndExecute:
         assert results[1]["type"] == "open_url"
         assert results[1]["param"] == "youtube.com"
         assert results[1]["result"] == "Url Ok"
+
+    @patch("jarvis.memory.long_term.LongTermMemory")
+    def test_parse_and_execute_save_fact(self, mock_ltm_class):
+        """Should parse <save_fact> tag and call LongTermMemory.save_fact."""
+        mock_ltm = MagicMock()
+        mock_ltm_class.return_value.__enter__.return_value = mock_ltm
+
+        text = 'Запоминаю: <save_fact category="preference" key="food">pizza</save_fact>'
+        results = parse_and_execute(text)
+
+        assert len(results) == 1
+        assert results[0]["type"] == "save_fact"
+        assert results[0]["param"] == "('preference', 'food', 'pizza')"
+        assert "Факт сохранён" in results[0]["result"]
+        mock_ltm.save_fact.assert_called_once_with("preference", "food", "pizza")

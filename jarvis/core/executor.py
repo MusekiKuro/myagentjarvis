@@ -23,6 +23,7 @@ ACTION_REGEXPS = {
     "open_url": re.compile(r"<open_url>(.*?)</open_url>", re.DOTALL),
     "run_command": re.compile(r"<run_command>(.*?)</run_command>", re.DOTALL),
     "python_code": re.compile(r"<python_code>(.*?)</python_code>", re.DOTALL),
+    "save_fact": re.compile(r'<save_fact\s+category="([^"]+)"\s+key="([^"]+)">([^<]+)</save_fact>', re.DOTALL),
 }
 
 
@@ -79,6 +80,16 @@ def open_url(url: str) -> str:
 def run_command(cmd: str) -> str:
     """Выполнить системную команду терминала (CMD/PowerShell) и вернуть вывод."""
     cmd = cmd.strip()
+    logger.info("Executor: Запрос на выполнение команды %r", cmd)
+
+    from jarvis import config
+    if config.REQUIRE_ACTION_CONFIRMATION:
+        print(f"\n[ВНИМАНИЕ] Джарвис хочет выполнить команду терминала:\n  {cmd}")
+        ans = input("Разрешить? [y/N]: ").strip().lower()
+        if ans != 'y':
+            logger.info("Executor: Команда отклонена пользователем.")
+            return "Команда отменена пользователем."
+
     logger.info("Executor: Выполнение команды %r", cmd)
 
     try:
@@ -123,7 +134,17 @@ def run_command(cmd: str) -> str:
 def run_python(code: str) -> str:
     """Запустить произвольный Python-код и вернуть результат (stdout/stderr/variables)."""
     code = code.strip()
-    logger.info("Executor: Запуск Python-кода (длина: %d симв.)", len(code))
+    logger.info("Executor: Запрос на запуск Python-кода (длина: %d симв.)", len(code))
+
+    from jarvis import config
+    if config.REQUIRE_ACTION_CONFIRMATION:
+        print(f"\n[ВНИМАНИЕ] Джарвис хочет запустить Python-код:\n{code}\n")
+        ans = input("Разрешить? [y/N]: ").strip().lower()
+        if ans != 'y':
+            logger.info("Executor: Python-код отклонен пользователем.")
+            return "Код отменен пользователем."
+
+    logger.info("Executor: Запуск Python-кода")
 
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -180,11 +201,14 @@ def parse_and_execute(text: str) -> list[dict[str, str]]:
 
     # Ищем вхождения тегов. Так как порядок выполнения важен,
     # мы находим все теги и выполняем их по очереди появления.
-    matches: list[tuple[int, str, str]] = []  # (index, action_type, content)
+    matches: list[tuple[int, str, Any]] = []  # (index, action_type, content)
 
     for action_type, regex in ACTION_REGEXPS.items():
         for match in regex.finditer(text):
-            matches.append((match.start(), action_type, match.group(1).strip()))
+            if action_type == "save_fact":
+                matches.append((match.start(), action_type, match.groups()))
+            else:
+                matches.append((match.start(), action_type, match.group(1).strip()))
 
     # Сортируем по индексу появления в тексте
     matches.sort(key=lambda x: x[0])
@@ -199,10 +223,23 @@ def parse_and_execute(text: str) -> list[dict[str, str]]:
             result_str = run_command(content)
         elif action_type == "python_code":
             result_str = run_python(content)
+        elif action_type == "save_fact":
+            category, key, value = content
+            category = category.strip()
+            key = key.strip()
+            value = value.strip()
+            try:
+                from jarvis.memory.long_term import LongTermMemory
+                with LongTermMemory() as ltm:
+                    ltm.save_fact(category, key, value)
+                result_str = f"Факт сохранён: [{category}] {key} = {value}"
+            except Exception as e:
+                logger.error("Executor: Ошибка сохранения факта: %s", e)
+                result_str = f"Ошибка сохранения факта: {e}"
 
         results.append({
             "type": action_type,
-            "param": content,
+            "param": str(content),
             "result": result_str,
         })
 

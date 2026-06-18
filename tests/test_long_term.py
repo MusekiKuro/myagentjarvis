@@ -80,45 +80,4 @@ class TestLongTermMemory:
         assert pref_facts[0]["key"] == "likes"
 
 
-class TestLongTermExtract:
-    """Tests for extract_and_save pattern matching."""
 
-    def test_extract_name(self, long_term):
-        """'меня зовут Алексей' -> person/name/Алексей."""
-        found = long_term.extract_and_save("меня зовут Алексей")
-        assert len(found) >= 1
-        assert ("person", "name", "Алексей") in found
-
-    def test_extract_workplace(self, long_term):
-        """'я работаю в Яндексе' -> person/workplace/Яндексе."""
-        found = long_term.extract_and_save("я работаю в Яндексе")
-        assert len(found) >= 1
-        assert any(cat == "person" and key == "workplace" for cat, key, val in found)
-
-    def test_extract_age(self, long_term):
-        """'мне 30 лет' -> person/age/30."""
-        found = long_term.extract_and_save("мне 30 лет")
-        assert len(found) >= 1
-        assert ("person", "age", "30") in found
-
-    def test_extract_likes(self, long_term):
-        """'я люблю кофе' -> preference/likes/кофе."""
-        found = long_term.extract_and_save("я люблю кофе")
-        assert len(found) >= 1
-        assert ("preference", "likes", "кофе") in found
-
-    def test_extract_dislikes(self, long_term):
-        """'я не люблю чай' -> preference/dislikes/чай."""
-        found = long_term.extract_and_save("я не люблю чай")
-        assert len(found) >= 1
-        assert ("preference", "dislikes", "чай") in found
-
-    def test_extract_no_match(self, long_term):
-        """'привет как дела' -> empty list (no patterns match)."""
-        found = long_term.extract_and_save("привет как дела")
-        assert found == []
-
-    def test_extract_empty(self, long_term):
-        """Empty string -> empty list."""
-        found = long_term.extract_and_save("")
-        assert found == []

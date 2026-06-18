@@ -28,19 +28,6 @@ CREATE TABLE IF NOT EXISTS facts (
 )
 """
 
-# Простые правила для extract_and_save
-# (триггер-фраза) -> (category, key)
-_EXTRACT_RULES: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(r"меня зовут\s+([А-ЯЁа-яёA-Za-z]+)", re.IGNORECASE), "person", "name"),
-    (re.compile(r"мо[её]\s+имя\s+([А-ЯЁа-яёA-Za-z]+)", re.IGNORECASE), "person", "name"),
-    (re.compile(r"я\s+работаю\s+(?:в\s+)?(.+?)(?:[.!?]|$)", re.IGNORECASE), "person", "workplace"),
-    (re.compile(r"я\s+(?:живу|нахожусь)\s+(?:в\s+)?(.+?)(?:[.!?]|$)", re.IGNORECASE), "person", "location"),
-    (re.compile(r"мне\s+(\d+)\s*(?:лет|года|год)", re.IGNORECASE), "person", "age"),
-    (re.compile(r"я\s+люблю\s+(.+?)(?:[.!?]|$)", re.IGNORECASE), "preference", "likes"),
-    (re.compile(r"я\s+не\s+люблю\s+(.+?)(?:[.!?]|$)", re.IGNORECASE), "preference", "dislikes"),
-    (re.compile(r"мой\s+(?:любимый\s+)?цвет\s+(.+?)(?:[.!?]|$)", re.IGNORECASE), "preference", "color"),
-]
-
 
 class LongTermMemory:
     """Долгосрочная память о пользователе на SQLite."""
@@ -183,29 +170,6 @@ class LongTermMemory:
             for item in items:
                 lines.append(f"    • {item['key']} = {item['value']}")
         return "\n".join(lines)
-
-    # ──────────────────────────────────────────────────────────
-    # Извлечение фактов из речи
-    # ──────────────────────────────────────────────────────────
-    def extract_and_save(self, text: str) -> list[tuple[str, str, str]]:
-        """
-        Простой парсинг фраз вида 'меня зовут X', 'я работаю в Y'.
-        Возвращает список найденных (category, key, value).
-        """
-        if not text:
-            return []
-        found: list[tuple[str, str, str]] = []
-        lowered = text.strip()
-        for pattern, category, key in _EXTRACT_RULES:
-            m = pattern.search(lowered)
-            if m:
-                value = m.group(1).strip().rstrip(".!?,;:")
-                if value:
-                    self.save_fact(category, key, value)
-                    found.append((category, key, value))
-        if found:
-            logger.info("LongTermMemory.extract_and_save: %d новых фактов", len(found))
-        return found
 
     # ──────────────────────────────────────────────────────────
     # Статистика
