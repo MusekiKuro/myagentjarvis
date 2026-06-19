@@ -16,7 +16,7 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 
-# SQL-схема таблицы фактов (раздел 5.8 документации)
+# SQL-схема таблицы фактов
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS facts (
     value TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+# SQL-схема таблицы истории задач (Фаза 2)
+_TASK_HISTORY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task TEXT NOT NULL,              -- исходная задача пользователя
+    steps_count INTEGER DEFAULT 0,  -- количество выполненных шагов
+    result_summary TEXT,            -- краткое резюме результата
+    status TEXT DEFAULT 'completed', -- 'completed' | 'partial' | 'failed'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """
 
@@ -49,9 +61,10 @@ class LongTermMemory:
         return conn
 
     def _init_db(self) -> None:
-        """Создать таблицу facts, если её ещё нет."""
+        """Создать таблицы facts и task_history, если их ещё нет."""
         try:
             self._conn.executescript(_SCHEMA)
+            self._conn.executescript(_TASK_HISTORY_SCHEMA)
             self._conn.commit()
             logger.debug("LongTermMemory: БД инициализирована (%s)", self._db_path)
         except sqlite3.Error as e:
@@ -152,24 +165,86 @@ class LongTermMemory:
         except sqlite3.Error as e:
             logger.error("LongTermMemory: ошибка очистки: %s", e)
 
-    # ──────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────
+    # История задач (Фаза 2)
+    # ──────────────────────────────────────────────────────────────
+    def save_task(
+        self,
+        task: str,
+        steps_count: int = 0,
+        result_summary: str = "",
+        status: str = "completed",
+    ) -> None:
+        """Сохранить запись о выполненной задаче в task_history."""
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO task_history (task, steps_count, result_summary, status)
+                VALUES (?, ?, ?, ?)
+                """,
+                (task, steps_count, result_summary, status),
+            )
+            self._conn.commit()
+            logger.info("LongTermMemory: задача сохранена: %r (статус=%s)", task[:60], status)
+        except sqlite3.Error as e:
+            logger.error("LongTermMemory: ошибка сохранения задачи: %s", e)
+
+    def get_task_history(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Получить последние N выполненных задач из task_history."""
+        try:
+            rows = self._conn.execute(
+                """
+                SELECT task, steps_count, result_summary, status, created_at
+                FROM task_history
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error("LongTermMemory: ошибка чтения task_history: %s", e)
+            return []
+
+    def clear_task_history(self) -> None:
+        """Очистить историю задач."""
+        try:
+            self._conn.execute("DELETE FROM task_history")
+            self._conn.commit()
+            logger.warning("LongTermMemory: история задач очищена")
+        except sqlite3.Error as e:
+            logger.error("LongTermMemory: ошибка очистки task_history: %s", e)
+
+    # ──────────────────────────────────────────────────────────────
     # Контекст для промпта
-    # ──────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────
     def to_context_string(self) -> str:
-        """Отформатировать все факты в строку для вставки в системный промпт."""
+        """Отформатировать все факты и последние задачи в строку для системного промпта."""
+        parts = []
+
+        # Факты о пользователе
         facts = self.get_facts()
-        if not facts:
-            return ""
-        lines = ["Известные факты о пользователе:"]
-        # Группируем по категориям
-        by_cat: dict[str, list[dict[str, Any]]] = {}
-        for f in facts:
-            by_cat.setdefault(f["category"], []).append(f)
-        for cat, items in by_cat.items():
-            lines.append(f"- {cat}:")
-            for item in items:
-                lines.append(f"    • {item['key']} = {item['value']}")
-        return "\n".join(lines)
+        if facts:
+            lines = ["Известные факты о пользователе:"]
+            by_cat: dict[str, list[dict[str, Any]]] = {}
+            for f in facts:
+                by_cat.setdefault(f["category"], []).append(f)
+            for cat, items in by_cat.items():
+                lines.append(f"- {cat}:")
+                for item in items:
+                    lines.append(f"    • {item['key']} = {item['value']}")
+            parts.append("\n".join(lines))
+
+        # Последние задачи (до 5)
+        tasks = self.get_task_history(limit=5)
+        if tasks:
+            lines = ["Недавно выполненные задачи:"]
+            for t in tasks:
+                ts = t.get("created_at", "")[:16]  # YYYY-MM-DD HH:MM
+                lines.append(f"  [{ts}] {t['task']} → {t['result_summary'][:80]}")
+            parts.append("\n".join(lines))
+
+        return "\n\n".join(parts)
 
     # ──────────────────────────────────────────────────────────
     # Статистика

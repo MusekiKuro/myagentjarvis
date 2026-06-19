@@ -217,6 +217,143 @@ class ToolDispatcher:
         except ImportError:
             logger.warning("ToolDispatcher: system недоступен (pycaw/psutil не установлены).")
 
+        # --- Буфер обмена ---
+        try:
+            from . import clipboard as clip_mod
+            self.register(ToolSpec(
+                name="clipboard.get",
+                description="Прочитать текущее содержимое буфера обмена.",
+                parameters={},
+                handler=clip_mod.get_clipboard,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="clipboard.set",
+                description="Записать текст в буфер обмена.",
+                parameters={"text": "текст для записи в буфер обмена (обязательный)"},
+                handler=clip_mod.set_clipboard,
+                dangerous=False,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: clipboard недоступен (pyperclip не установлен).")
+
+        # --- Браузер (Playwright) ---
+        try:
+            from . import browser as browser_mod
+            self.register(ToolSpec(
+                name="browser.open",
+                description="Открыть страницу в браузере по URL.",
+                parameters={"url": "адрес страницы (обязательный)"},
+                handler=browser_mod.open_page,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.get_text",
+                description="Получить текстовое содержимое текущей страницы браузера.",
+                parameters={"max_chars": "максимум символов, по умолчанию 3000 (необязательный)"},
+                handler=browser_mod.get_page_text,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.click",
+                description="Кликнуть на элемент страницы по CSS-селектору.",
+                parameters={"selector": "CSS-селектор элемента (обязательный)"},
+                handler=browser_mod.click_element,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.fill",
+                description="Заполнить поле ввода на странице.",
+                parameters={
+                    "selector": "CSS-селектор поля (обязательный)",
+                    "text": "текст для ввода (обязательный)",
+                },
+                handler=browser_mod.fill_form,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.screenshot",
+                description="Сделать скриншот текущей страницы браузера.",
+                parameters={"save_path": "путь для сохранения PNG (необязательный)"},
+                handler=browser_mod.screenshot,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.search",
+                description="Поиск в интернете через браузер (DuckDuckGo).",
+                parameters={"query": "поисковый запрос (обязательный)"},
+                handler=browser_mod.search_web_browser,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="browser.url",
+                description="Получить текущий URL открытой страницы браузера.",
+                parameters={},
+                handler=browser_mod.get_current_url,
+                dangerous=False,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: browser недоступен (playwright не установлен).")
+
+        # --- Мессенджеры ---
+        try:
+            from . import messenger as msg_mod
+            self.register(ToolSpec(
+                name="messenger.whatsapp_read",
+                description="Прочитать последние сообщения из чата WhatsApp.",
+                parameters={
+                    "chat_name": "имя чата или контакта для поиска (обязательный)",
+                    "count": "количество сообщений, по умолчанию 5 (необязательный)",
+                },
+                handler=msg_mod.whatsapp_get_messages,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="messenger.whatsapp_send",
+                description="Отправить сообщение в чат WhatsApp. Требует голосового подтверждения.",
+                parameters={
+                    "chat_name": "имя чата или контакта (обязательный)",
+                    "message": "текст сообщения (обязательный)",
+                },
+                handler=msg_mod.whatsapp_send_message,
+                dangerous=True,
+            ))
+            self.register(ToolSpec(
+                name="messenger.telegram_read",
+                description="Прочитать последние сообщения из чата Telegram.",
+                parameters={
+                    "chat_name": "имя чата или контакта (обязательный)",
+                    "count": "количество сообщений, по умолчанию 5 (необязательный)",
+                },
+                handler=msg_mod.telegram_get_messages,
+                dangerous=False,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: messenger недоступен (playwright не установлен).")
+
+        # --- Task Planner ---
+        # Регистрируем через замыкание, т.к. planner нужен сам dispatcher
+        try:
+            from . import planner as planner_mod
+
+            def _run_plan(task: str) -> str:
+                plan = planner_mod.create_plan(task, self)
+                return planner_mod.execute_plan(plan, self)
+
+            self.register(ToolSpec(
+                name="planner.run",
+                description=(
+                    "Выполнить сложную многошаговую задачу с автоматической декомпозицией. "
+                    "Используй для задач вида: 'посмотри вотсап и найди дешевле', "
+                    "'узнай погоду и открой новости'."
+                ),
+                parameters={"task": "полное описание задачи (обязательный)"},
+                handler=_run_plan,
+                dangerous=False,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: planner недоступен.")
+
     # ──────────────────────────────────────────────────────────
     # Разбор ответа LLM
     # ──────────────────────────────────────────────────────────
