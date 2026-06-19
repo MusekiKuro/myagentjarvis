@@ -86,7 +86,7 @@ def test_planner_step_error_marked():
     assert plan.steps[1].result is None
     assert plan.steps[1].error is None
 
-def test_planner_no_ltm_logged(caplog):
+def test_planner_handles_missing_ltm_gracefully(caplog):
     """Предотвращает регрессию: planner.run без ltm должен явно логировать что не сохранён."""
     dispatcher = ToolDispatcher()
     plan = ExecutionPlan(
@@ -100,6 +100,27 @@ def test_planner_no_ltm_logged(caplog):
         execute_plan(plan, dispatcher, ltm=None)
         
     assert "ltm не передан" in caplog.text
+
+def test_planner_saves_task_when_ltm_provided():
+    """B2 Fix: Убеждаемся, что реальный вызов planner.run через Dispatcher действительно сохраняет задачу."""
+    class DummyLTM:
+        def __init__(self):
+            self.saved_calls = []
+        def save_task(self, task, steps_count=0, result_summary="", status="completed"):
+            self.saved_calls.append((task, result_summary))
+            
+    dummy_ltm = DummyLTM()
+    dispatcher = ToolDispatcher(ltm=dummy_ltm)
+    
+    # Эмулируем запуск плана
+    with patch("jarvis.tools.planner.create_plan") as mock_create:
+        mock_create.return_value = ExecutionPlan(task="тестовая задача", steps=[])
+        with patch("jarvis.tools.planner._summarize_results", return_value="Суммаризация успешна"):
+            dispatcher.tools["planner.run"].handler(task="тестовая задача")
+            
+    assert len(dummy_ltm.saved_calls) == 1
+    assert dummy_ltm.saved_calls[0][0] == "тестовая задача"
+    assert dummy_ltm.saved_calls[0][1] == "Суммаризация успешна"
 
 import pytest
 
@@ -206,3 +227,70 @@ def test_apps_open_app_allowlist():
         res = open_app("блокнот; rm -rf /")
         assert "Не знаю приложение" in res
         mock_popen.assert_not_called()
+
+def test_files_read_sensitive():
+    """B1 Fix: read_file должен блокировать чувствительные пути."""
+    from jarvis.tools.files import read_file
+    
+    with patch("pathlib.Path.read_text") as mock_read:
+        # 1. .env
+        res = read_file(".env")
+        assert "Отказано" in res
+        mock_read.assert_not_called()
+        
+        # 2. ~/.ssh/id_rsa
+        res = read_file("~/.ssh/id_rsa")
+        assert "Отказано" in res
+        mock_read.assert_not_called()
+        
+        # 3. jarvis_memory.db
+        res = read_file("jarvis_memory.db")
+        assert "Отказано" in res
+        mock_read.assert_not_called()
+        
+        # 4. Обычный файл работает (возвращает ошибку FileNotFoundError, но не Отказано)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("pathlib.Path.is_file", return_value=True):
+                mock_read.return_value = "hello"
+                res = read_file("notes.txt")
+                assert res == "hello"
+
+def test_files_find_sensitive():
+    """B1 Fix: find_file должен фильтровать чувствительные пути из выдачи."""
+    from jarvis.tools.files import find_file
+    from pathlib import Path
+    
+    with patch("pathlib.Path.exists", return_value=True):
+        with patch("pathlib.Path.rglob") as mock_rglob:
+            # Имитируем, что rglob нашел файлы
+            mock_rglob.return_value = [
+                Path("/home/user/notes.txt"),
+                Path("/home/user/.ssh/id_rsa.pub"),
+                Path("/home/user/keys/some.pem"),
+            ]
+            res = find_file("*.pem", "~")
+            # notes.txt должен остаться, а id_rsa.pub и some.pem должны отфильтроваться
+            assert "notes.txt" in res
+            assert "id_rsa" not in res
+            assert "some.pem" not in res
+
+def test_files_read_dangerous_classification():
+    """B1 Fix: files.read_file должен быть dangerous=True и зависеть от VoiceConfirm."""
+    dispatcher = ToolDispatcher()
+    spec = dispatcher.tools.get("files.read_file")
+    assert spec.dangerous is True
+    
+    # Убеждаемся что вызов блокируется если нет VoiceConfirm (fail-closed)
+    import jarvis.config as config
+    from jarvis.tools.dispatcher import ToolCall
+    
+    original_req = config.REQUIRE_ACTION_CONFIRMATION
+    config.REQUIRE_ACTION_CONFIRMATION = True
+    
+    with patch("jarvis.core.confirm.get_voice_confirm", return_value=None):
+        try:
+            res = dispatcher.execute(ToolCall(tool="files.read_file", params={"path": "notes.txt"}))
+            assert "Действие отменено" in res
+            assert "голосовое подтверждение недоступно" in res
+        finally:
+            config.REQUIRE_ACTION_CONFIRMATION = original_req

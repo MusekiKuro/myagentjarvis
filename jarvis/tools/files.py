@@ -18,6 +18,17 @@ def _resolve_path(path: str) -> Path:
     """Раскрыть путь: ~, переменные окружения, относительные."""
     return Path(os.path.expandvars(path)).expanduser().resolve()
 
+_SENSITIVE_PATTERNS = (
+    ".env", ".ssh", ".aws", ".kube", ".gnupg",
+    "credentials", "id_rsa", "id_ed25519", ".pem", ".key",
+    "jarvis_memory.db", "password", "secret", "token",
+)
+
+def _is_sensitive_path(resolved_path: Path) -> bool:
+    """Проверяет, содержит ли путь критичные для безопасности паттерны."""
+    path_str = str(resolved_path).lower()
+    return any(pattern in path_str for pattern in _SENSITIVE_PATTERNS)
+
 
 def list_dir(path: str = ".") -> str:
     """
@@ -31,6 +42,10 @@ def list_dir(path: str = ".") -> str:
     """
     resolved = _resolve_path(path)
     logger.info("files.list_dir: %s", resolved)
+
+    if _is_sensitive_path(resolved):
+        # Компромисс: директория чувствительная, поэтому скрываем файлы внутри нее, чтобы не "палить" имена ключей
+        return f"Отказано: директория {resolved} содержит чувствительные данные. Просмотр запрещён."
 
     if not resolved.exists():
         return f"Ошибка: путь не существует: {resolved}"
@@ -73,6 +88,10 @@ def read_file(path: str, max_lines: int = 100) -> str:
     resolved = _resolve_path(path)
     logger.info("files.read_file: %s (max_lines=%d)", resolved, max_lines)
 
+    if _is_sensitive_path(resolved):
+        logger.warning("files.read_file: попытка чтения чувствительного пути: %s", resolved)
+        return "Отказано: путь указывает на файл с чувствительными данными."
+
     if not resolved.exists():
         return f"Ошибка: файл не найден: {resolved}"
     if not resolved.is_file():
@@ -112,7 +131,9 @@ def find_file(name: str, search_dir: str = "~") -> str:
         return f"Ошибка: директория поиска не существует: {resolved}"
 
     try:
-        found = list(resolved.rglob(name))
+        raw_found = list(resolved.rglob(name))
+        # Фильтруем результаты, чтобы не выдавать расположение секретов
+        found = [p for p in raw_found if not _is_sensitive_path(p)]
     except PermissionError:
         return f"Ошибка: нет доступа к {resolved}"
     except Exception as e:

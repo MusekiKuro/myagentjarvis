@@ -61,7 +61,8 @@ class ToolDispatcher:
             result = dispatcher.execute(parsed.tool_call)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, ltm: Any = None) -> None:
+        self.ltm = ltm
         self._tools: dict[str, ToolSpec] = {}
         self._register_builtin_tools()
 
@@ -111,7 +112,7 @@ class ToolDispatcher:
                     "max_lines": "максимум строк, по умолчанию 100 (необязательный)",
                 },
                 handler=files_mod.read_file,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="files.find_file",
@@ -458,7 +459,7 @@ class ToolDispatcher:
                     if not vc.ask(question):
                         return "Действие отменено пользователем."
 
-                return planner_mod.execute_plan(plan, self)
+                return planner_mod.execute_plan(plan, self, ltm=self.ltm)
 
             self.register(ToolSpec(
                 name="planner.run",

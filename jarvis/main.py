@@ -180,7 +180,7 @@ def _init_components() -> dict[str, Any]:
 
     # Tool Dispatcher (агентские инструменты)
     try:
-        dispatcher = ToolDispatcher()
+        dispatcher = ToolDispatcher(ltm=components.get("memory_long"))
         components["dispatcher"] = dispatcher
         registered = list(dispatcher.tools.keys())
         logger.info("ToolDispatcher: зарегистрировано %d инструментов: %s", len(registered), registered)
