@@ -9,6 +9,6 @@ JARVIS Tools — пакет агентских инструментов.
     ToolDispatcher — основной маршрутизатор tool_call запросов от LLM.
 """
 
-from .dispatcher import ToolDispatcher, ToolSpec, ToolCall, ParsedResponse
+from .dispatcher import ParsedResponse, ToolCall, ToolDispatcher, ToolSpec
 
-__all__ = ["ToolDispatcher", "ToolSpec", "ToolCall", "ParsedResponse"]
+__all__ = ["ParsedResponse", "ToolCall", "ToolDispatcher", "ToolSpec"]

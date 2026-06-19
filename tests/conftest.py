@@ -2,6 +2,7 @@
 import os
 import sys
 from unittest.mock import MagicMock
+
 import pytest
 
 # Ensure test environment doesn't use real keys

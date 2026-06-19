@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class PlanStep:
     tool: str                  # Имя инструмента
     params: dict[str, Any]     # Параметры вызова
     description: str = ""      # Человекочитаемое описание шага
-    result: Optional[str] = None  # Заполняется после выполнения
-    error: Optional[str] = None
+    result: str | None = None  # Заполняется после выполнения
+    error: str | None = None
 
 
 @dataclass
@@ -86,6 +86,7 @@ def create_plan(task: str, dispatcher) -> ExecutionPlan:
 
     try:
         from jarvis.core.brain import Brain
+
         # Создаём временный Brain только для планировщика (без истории)
         from jarvis.memory.short_term import ShortTermMemory
         temp_stm = ShortTermMemory()
@@ -93,8 +94,8 @@ def create_plan(task: str, dispatcher) -> ExecutionPlan:
 
         response_chunks = []
         for chunk in planner_brain._stream_api(
+            system_prompt=system_prompt,
             messages=[
-                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Задача: {task}"},
             ],
         ):
@@ -239,8 +240,8 @@ def _summarize_results(task: str, results_text: str) -> str:
 
         chunks = []
         for chunk in summarizer._stream_api(
+            system_prompt="Ты JARVIS — голосовой ИИ-ассистент. Отвечай кратко по-русски.",
             messages=[
-                {"role": "system", "content": "Ты JARVIS — голосовой ИИ-ассистент. Отвечай кратко по-русски."},
                 {"role": "user", "content": prompt},
             ],
         ):

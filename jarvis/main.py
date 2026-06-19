@@ -25,8 +25,9 @@ from jarvis.core import (
     record_until_silence,
     stop_playback,
 )
-from jarvis.core.confirm import VoiceConfirm, set_voice_confirm as _set_voice_confirm_global
 from jarvis.core import executor as _executor
+from jarvis.core.confirm import VoiceConfirm
+from jarvis.core.confirm import set_voice_confirm as _set_voice_confirm_global
 from jarvis.memory import LongTermMemory, ShortTermMemory
 from jarvis.tools import ToolDispatcher
 
@@ -222,11 +223,11 @@ def _stream_and_detect(response_gen: Any, tts: TextToSpeech) -> tuple[str, str]:
         if response_type == "text":
             # Безопасный стриминг текста (без XML-тегов действий) для TTS
             safe_limit = len(raw_accumulator)
-            
+
             last_lt = raw_accumulator.rfind('<')
             if last_lt != -1 and '>' not in raw_accumulator[last_lt:]:
                 safe_limit = last_lt
-                
+
             for tag in ["open_app", "open_url", "run_command", "python_code", "save_fact"]:
                 start_pos = 0
                 while True:
@@ -236,18 +237,18 @@ def _stream_and_detect(response_gen: Any, tts: TextToSpeech) -> tuple[str, str]:
                     if end_idx == -1 and idx < safe_limit:
                         safe_limit = idx
                     start_pos = idx + 1
-                    
+
             safe_prefix = raw_accumulator[:safe_limit]
             clean_prefix = safe_prefix
             for regex in ACTION_REGEXPS.values():
                 clean_prefix = regex.sub("", clean_prefix)
-                
+
             last_sentence_end = -1
             for char in ('.', '!', '?'):
                 idx = clean_prefix.rfind(char)
                 if idx > last_sentence_end:
                     last_sentence_end = idx
-                    
+
             if last_sentence_end != -1 and last_sentence_end >= len(spoken_text):
                 to_speak = clean_prefix[len(spoken_text):last_sentence_end + 1].strip()
                 if to_speak:
@@ -259,11 +260,11 @@ def _stream_and_detect(response_gen: Any, tts: TextToSpeech) -> tuple[str, str]:
         clean_final = raw_accumulator
         for regex in ACTION_REGEXPS.values():
             clean_final = regex.sub("", clean_final)
-            
+
         to_speak_final = clean_final[len(spoken_text):].strip()
         if to_speak_final:
             _speak_async(tts, to_speak_final)
-            
+
     if response_type == "unknown":
         response_type = "text"
 
@@ -282,6 +283,7 @@ def _main_loop(components: dict[str, Any]) -> None:
     brain: Brain = components["brain"]
     tts: TextToSpeech = components["tts"]
     long_term: LongTermMemory = components["memory_long"]
+    dispatcher: ToolDispatcher | None = components.get("dispatcher")
 
     logger.info("JARVIS готов к работе. Скажите '%s'", config.WAKE_WORD.upper())
 

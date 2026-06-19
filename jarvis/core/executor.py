@@ -16,26 +16,26 @@ import traceback
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .confirm import VoiceConfirm
     from ..memory.long_term import LongTermMemory
+    from .confirm import VoiceConfirm
 
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
 # Глобальные зависимости (инициализируются из main.py)
 # ──────────────────────────────────────────────────────────────
-_voice_confirm: "VoiceConfirm | None" = None
-_long_term: "LongTermMemory | None" = None  # Bug B2 fix: используем существующий экземпляр
+_voice_confirm: VoiceConfirm | None = None
+_long_term: LongTermMemory | None = None  # Bug B2 fix: используем существующий экземпляр
 
 
-def set_voice_confirm(vc: "VoiceConfirm") -> None:
+def set_voice_confirm(vc: VoiceConfirm) -> None:
     """[Маин] Установить глобальный экземпляр голосового подтверждения."""
     global _voice_confirm
     _voice_confirm = vc
     logger.info("Executor: VoiceConfirm установлен.")
 
 
-def set_long_term(ltm: "LongTermMemory") -> None:
+def set_long_term(ltm: LongTermMemory) -> None:
     """[Маин] Передать экземпляр LongTermMemory (Bug B2 fix)."""
     global _long_term
     _long_term = ltm
@@ -116,7 +116,7 @@ def run_command(cmd: str) -> str:
 
     except subprocess.TimeoutExpired:
         logger.warning("Executor: Превышен тайм-аут выполнения команды %r", cmd)
-        return f"Ошибка: превышен тайм-аут выполнения команды (15 сек)."
+        return "Ошибка: превышен тайм-аут выполнения команды (15 сек)."
     except Exception as e:
         logger.error("Executor: Ошибка выполнения команды %r: %s", cmd, e)
         return f"Ошибка выполнения команды: {e}"
@@ -130,7 +130,7 @@ def run_python(code: str) -> str:
     from jarvis import config
     if config.REQUIRE_ACTION_CONFIRMATION:
         if _voice_confirm is not None:
-            if not _voice_confirm.ask(f"Сэр, хочу запустить Python-код. Разрешаете?"):
+            if not _voice_confirm.ask("Сэр, хочу запустить Python-код. Разрешаете?"):
                 logger.info("Executor: Python-код отклонён пользователем.")
                 return "Код отменён."
         else:
@@ -156,7 +156,7 @@ def run_python(code: str) -> str:
     try:
         # Выполняем код
         exec(code, global_env, local_env)
-        
+
         sys.stdout = old_stdout
         sys.stderr = old_stderr
 

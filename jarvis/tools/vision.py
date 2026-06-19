@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
-from pathlib import Path
 
 import requests
 
@@ -21,17 +19,18 @@ logger = logging.getLogger(__name__)
 def _capture_screen() -> str | None:
     """Делает скриншот и возвращает его в формате base64."""
     try:
-        import pyautogui
         import io
-        
+
+        import pyautogui
+
         screenshot = pyautogui.screenshot()
         # Сжимаем изображение, чтобы не отправлять слишком большой payload
         screenshot.thumbnail((1920, 1080))
-        
+
         buffer = io.BytesIO()
         screenshot.save(buffer, format="JPEG", quality=80)
         img_bytes = buffer.getvalue()
-        
+
         return base64.b64encode(img_bytes).decode('utf-8')
     except ImportError:
         logger.error("vision: pyautogui не установлен.")
@@ -54,14 +53,14 @@ def analyze_screen(prompt: str = "Что сейчас изображено на 
 
     # Используем модель, поддерживающую vision через OpenRouter
     vision_model = "google/gemini-2.5-flash"  # или другая подходящая модель
-    
+
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "HTTP-Referer": "https://github.com/MusekiKuro/myagentjarvis",
         "X-Title": "JARVIS Assistant",
         "Content-Type": "application/json"
     }
-    
+
     payload = {
         "model": vision_model,
         "messages": [
@@ -83,7 +82,7 @@ def analyze_screen(prompt: str = "Что сейчас изображено на 
         ],
         "max_tokens": 500
     }
-    
+
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -93,14 +92,14 @@ def analyze_screen(prompt: str = "Что сейчас изображено на 
         )
         response.raise_for_status()
         data = response.json()
-        
+
         if "choices" in data and len(data["choices"]) > 0:
             result_text = data["choices"][0]["message"]["content"]
             logger.info("vision: экран успешно проанализирован.")
             return f"Результат анализа экрана:\n{result_text}"
         else:
             return f"Ошибка API OpenRouter: {data}"
-            
+
     except Exception as e:
         logger.error("vision: ошибка API: %s", e)
         return f"Ошибка при обращении к Vision API: {e}"

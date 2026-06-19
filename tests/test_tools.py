@@ -1,8 +1,8 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # 1. Файлы
-from jarvis.tools.files import list_dir, read_file, find_file, write_file, delete_file
+from jarvis.tools.files import list_dir, read_file, write_file
+
 
 def test_files_list_dir(tmp_path):
     # Создаем временную структуру
@@ -10,7 +10,7 @@ def test_files_list_dir(tmp_path):
     d.mkdir()
     f1 = tmp_path / "file1.txt"
     f1.write_text("hello")
-    
+
     res = list_dir(str(tmp_path))
     assert "subdir" in res
     assert "file1.txt" in res
@@ -19,12 +19,13 @@ def test_files_read_write(tmp_path):
     f = tmp_path / "test.txt"
     res1 = write_file(str(f), "hello world")
     assert "записан" in res1
-    
+
     res2 = read_file(str(f))
     assert res2 == "hello world"
 
 # 2. Приложения
-from jarvis.tools.apps import open_app, open_url, close_app
+from jarvis.tools.apps import open_app, open_url
+
 
 @patch("subprocess.Popen")
 def test_open_app(mock_popen):
@@ -39,7 +40,8 @@ def test_open_url(mock_webbrowser):
     mock_webbrowser.assert_called_once_with("https://google.com")
 
 # 3. Система
-from jarvis.tools.system import get_system_info, set_volume, get_battery
+from jarvis.tools.system import get_system_info
+
 
 def test_system_info():
     # Просто проверяем, что psutil вызывается без ошибок (т.к. он установлен)
@@ -50,6 +52,7 @@ def test_system_info():
 
 # 4. Поиск
 from jarvis.tools.search import web_search
+
 
 def test_web_search():
     # Мокаем duckduckgo_search

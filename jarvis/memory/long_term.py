@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -78,7 +77,7 @@ class LongTermMemory:
         except Exception as e:
             logger.warning("LongTermMemory: ошибка закрытия БД: %s", e)
 
-    def __enter__(self) -> "LongTermMemory":
+    def __enter__(self) -> LongTermMemory:
         return self
 
     def __exit__(self, *exc: Any) -> None:

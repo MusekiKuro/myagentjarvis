@@ -1,6 +1,7 @@
 """Tests for listener utility functions (audio conversion and RMS energy)."""
-import numpy as np
 import struct
+
+import numpy as np
 
 
 def _audio_int16_to_float32(raw: bytes) -> np.ndarray:

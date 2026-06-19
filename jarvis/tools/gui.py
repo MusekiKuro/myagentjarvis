@@ -8,7 +8,6 @@ tools/gui.py — Управление графическим интерфейс�
 from __future__ import annotations
 
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ def click(x: int | None = None, y: int | None = None, button: str = "left", clic
         else:
             pyautogui.click(button=button, clicks=clicks)
             coord_str = " на текущей позиции"
-        
+
         return f"Выполнен клик ({button}, {clicks} раз){coord_str}."
     except ImportError:
         return "Ошибка: pyautogui не установлен."

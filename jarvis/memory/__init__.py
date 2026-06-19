@@ -1,6 +1,6 @@
 """Пакет memory — краткосрочная и долгосрочная память ассистента."""
 
-from .short_term import ShortTermMemory
 from .long_term import LongTermMemory
+from .short_term import ShortTermMemory
 
-__all__ = ["ShortTermMemory", "LongTermMemory"]
+__all__ = ["LongTermMemory", "ShortTermMemory"]

@@ -12,7 +12,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 from jarvis import config
 
@@ -29,7 +28,8 @@ def _get_page():
     global _playwright, _browser, _page
 
     try:
-        from playwright.sync_api import sync_playwright, Error as PlaywrightError
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import sync_playwright
     except ImportError:
         raise RuntimeError(
             "Playwright не установлен. Выполните: pip install playwright && playwright install chromium"
@@ -149,7 +149,7 @@ def fill_form(selector: str, text: str) -> str:
         return f"Ошибка заполнения поля «{selector}»: {e}"
 
 
-def screenshot(save_path: Optional[str] = None) -> str:
+def screenshot(save_path: str | None = None) -> str:
     """
     Сделать скриншот текущей страницы.
 

@@ -8,7 +8,8 @@ JARVIS озвучивает вопрос, записывает ответ пол
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .. import config
 
@@ -43,8 +44,8 @@ class VoiceConfirm:
 
     def __init__(
         self,
-        tts: "TextToSpeech",
-        stt: "SpeechToText",
+        tts: TextToSpeech,
+        stt: SpeechToText,
         speak_fn: Callable[[str], None],
     ) -> None:
         """
@@ -76,7 +77,6 @@ class VoiceConfirm:
             5. Если совпадение с _DENY_WORDS или тишина → False + "Отменяю".
             6. Если ни то, ни другое → переспросить один раз → False если снова непонятно.
         """
-        from .listener import record_until_silence
 
         # 1. Озвучить вопрос
         logger.info("VoiceConfirm.ask: %r", question)

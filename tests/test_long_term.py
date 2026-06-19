@@ -1,7 +1,5 @@
 """Tests for LongTermMemory (jarvis.memory.long_term)."""
-import pytest
 
-from jarvis.memory.long_term import LongTermMemory
 
 
 class TestLongTermMemory:

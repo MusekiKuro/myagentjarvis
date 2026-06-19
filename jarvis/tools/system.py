@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 
 def _get_volume_interface():
     """Вернуть интерфейс управления громкостью Windows (pycaw)."""
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-    from ctypes import cast, POINTER
+    from ctypes import POINTER, cast
+
     from comtypes import CLSCTX_ALL
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
     devices = AudioUtilities.GetSpeakers()
     interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)

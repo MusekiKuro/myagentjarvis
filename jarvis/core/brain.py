@@ -144,11 +144,11 @@ class Brain:
                     break
                 try:
                     data = json.loads(data_str)
-                    if "choices" in data and data["choices"]:
+                    if data.get("choices"):
                         delta = data["choices"][0].get("delta", {})
-                        if "content" in delta and delta["content"]:
+                        if delta.get("content"):
                             yield delta["content"]
-                        if "reasoning" in delta and delta["reasoning"]:
+                        if delta.get("reasoning"):
                             reasoning_chunks.append(delta["reasoning"])
                 except json.JSONDecodeError:
                     pass
@@ -183,11 +183,11 @@ class Brain:
             timeout=60,
         )
         response.raise_for_status()
-        
+
         data = response.json()
         if "choices" not in data or not data["choices"]:
             return "", None
-            
+
         message = data["choices"][0].get("message", {})
         content = message.get("content", "").strip()
         reasoning_details = message.get("reasoning_details")
@@ -285,7 +285,7 @@ class Brain:
                     # Для стриминга мы делаем вызов и возвращаем обертку
                     # Retry для стриминга сложнее, если он упадет посередине, но мы хотя бы ловим начальные ошибки.
                     result = self._stream_api(system_prompt, messages)
-                    
+
                     def generator_wrapper():
                         full_text = []
                         for chunk in result:

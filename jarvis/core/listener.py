@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import logging
-import struct
 from typing import Any
 
 import numpy as np
@@ -18,8 +17,8 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 try:
-    import pyaudio
     import openwakeword
+    import pyaudio
     from openwakeword.model import Model
 except ImportError as e:  # pragma: no cover
     pyaudio = None  # type: ignore[assignment]
@@ -83,11 +82,11 @@ class WakeWordListener:
 
         self._pa = pyaudio.PyAudio()
         self._stream: Any | None = None
-        
+
         # OWW всегда работает с 16000 Hz, 1 channel, 16-bit PCM
         self.sample_rate = 16000
         # OWW ожидает фреймы определенного размера (обычно 1280 сэмплов = 80ms)
-        self.frame_length = 1280 
+        self.frame_length = 1280
 
         logger.info(
             "WakeWordListener: инициализирован (keyword=%s, sensitivity=%.2f, rate=%d)",
@@ -135,11 +134,11 @@ class WakeWordListener:
                     self.frame_length,
                     exception_on_overflow=False,
                 )
-                
+
                 # Передаем аудио фрейм в OWW
                 audio_array = np.frombuffer(pcm, dtype=np.int16)
                 prediction = self._oww_model.predict(audio_array)
-                
+
                 for model_name, score in prediction.items():
                     if score >= self._sensitivity:
                         logger.info(
@@ -181,7 +180,7 @@ class WakeWordListener:
         except Exception as e:  # pragma: no cover
             logger.warning("WakeWordListener: ошибка terminate PyAudio: %s", e)
 
-    def __enter__(self) -> "WakeWordListener":
+    def __enter__(self) -> WakeWordListener:
         return self
 
     def __exit__(self, *exc: Any) -> None:
@@ -196,7 +195,7 @@ def record_until_silence(
     silence_duration: float | None = None,
     sample_rate: int | None = None,
     max_seconds: int | None = None,
-    pa: "pyaudio.PyAudio | None" = None,
+    pa: pyaudio.PyAudio | None = None,
 ) -> np.ndarray:
     """
     Записывает аудио с микрофона, пока пользователь говорит.

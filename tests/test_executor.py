@@ -1,16 +1,14 @@
 """Tests for jarvis.core.executor module."""
 
 import subprocess
-import sys
 from unittest.mock import MagicMock, patch
-import pytest
 
 from jarvis.core.executor import (
     open_app,
     open_url,
+    parse_and_execute,
     run_command,
     run_python,
-    parse_and_execute,
 )
 
 
@@ -22,7 +20,7 @@ class TestOpenApp:
     def test_open_app_known_protocol(self, mock_popen, mock_system):
         """Known apps with protocols should use os.system."""
         res = open_app("whatsapp")
-        assert "Успешно запущено" in res
+        assert "запущено: whatsapp" in res
         mock_system.assert_called_once_with("start whatsapp:")
         mock_popen.assert_not_called()
 
@@ -31,7 +29,7 @@ class TestOpenApp:
     def test_open_app_known_executable(self, mock_popen, mock_system):
         """Known apps with executables should use subprocess.Popen."""
         res = open_app("notepad")
-        assert "Успешно запущено" in res
+        assert "запущено: notepad" in res
         mock_popen.assert_called_once_with("notepad.exe", shell=True)
         mock_system.assert_not_called()
 
@@ -40,7 +38,7 @@ class TestOpenApp:
     def test_open_app_unknown(self, mock_popen, mock_system):
         """Unknown apps should fallback to trying subprocess.Popen."""
         res = open_app("my_custom_app.exe")
-        assert "Успешно запущено" in res
+        assert "запущено: my_custom_app.exe" in res
         mock_popen.assert_called_once_with("my_custom_app.exe", shell=True)
         mock_system.assert_not_called()
 
@@ -49,7 +47,7 @@ class TestOpenApp:
         """Errors during launching should be captured and returned."""
         mock_popen.side_effect = OSError("File not found")
         res = open_app("nonexistent_app")
-        assert "Ошибка при запуске" in res
+        assert "Ошибка запуска" in res
         assert "File not found" in res
 
 
@@ -60,7 +58,7 @@ class TestOpenUrl:
     def test_open_url_standard(self, mock_open):
         """Should open URL using webbrowser module."""
         res = open_url("https://google.com")
-        assert "Успешно открыта ссылка" in res
+        assert "Ссылка открыта" in res
         mock_open.assert_called_once_with("https://google.com")
 
     @patch("webbrowser.open")

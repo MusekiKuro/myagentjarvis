@@ -1,7 +1,5 @@
 """Tests for config validation logic."""
-import os
 import pytest
-from unittest.mock import patch
 
 
 class TestConfigValidation:
