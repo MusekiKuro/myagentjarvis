@@ -201,6 +201,7 @@ class Brain:
         self,
         user_text: str,
         long_term_context: str = "",
+        tools_prompt: str = "",
         stream: bool | None = None,
     ) -> str:
         """
@@ -213,7 +214,7 @@ class Brain:
 
         self._short_term.add("user", user_text)
 
-        system_prompt = self._build_system_prompt(long_term_context)
+        system_prompt = self._build_system_prompt(long_term_context, tools_prompt)
         messages = self._short_term.get_messages()
 
         logger.debug(
@@ -266,6 +267,7 @@ class Brain:
         self,
         user_text: str,
         long_term_context: str = "",
+        tools_prompt: str = "",
         max_attempts: int = 3,
         stream: bool = False,
     ) -> Any:
@@ -275,7 +277,7 @@ class Brain:
 
         # Добавляем сообщение пользователя ОДИН раз, ДО цикла
         self._short_term.add("user", user_text)
-        system_prompt = self._build_system_prompt(long_term_context)
+        system_prompt = self._build_system_prompt(long_term_context, tools_prompt)
 
         last_err: Exception | None = None
         for attempt in range(1, max_attempts + 1):

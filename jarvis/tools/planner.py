@@ -123,7 +123,7 @@ def create_plan(task: str, dispatcher) -> ExecutionPlan:
         )
 
 
-def execute_plan(plan: ExecutionPlan, dispatcher, ltm=None) -> str:
+def execute_plan(plan: ExecutionPlan, dispatcher, ltm=None, stop_on_error: bool = True) -> str:
     """
     Выполнить план пошагово.
 
@@ -131,6 +131,7 @@ def execute_plan(plan: ExecutionPlan, dispatcher, ltm=None) -> str:
         plan: ExecutionPlan для выполнения.
         dispatcher: ToolDispatcher для вызова инструментов.
         ltm: LongTermMemory для сохранения истории задач (опционально).
+        stop_on_error: Остановить выполнение при ошибке на любом шаге (по умолчанию True).
 
     Returns:
         Финальная суммаризация результатов.
@@ -163,10 +164,17 @@ def execute_plan(plan: ExecutionPlan, dispatcher, ltm=None) -> str:
             step.error = str(e)
             results_log.append(f"Шаг {step.step_num}: ОШИБКА — {e}")
             logger.error("Planner: ошибка шага %d: %s", step.step_num, e)
+            if stop_on_error:
+                results_log.append(f"План остановлен на шаге {step.step_num} из-за ошибки.")
+                break
 
     # Суммаризация через LLM
     all_results = "\n\n".join(results_log)
-    summary = _summarize_results(plan.task, all_results)
+    
+    partial = any(s.error for s in plan.steps)
+    stopped_at = next((s.step_num for s in plan.steps if s.error), None)
+    
+    summary = _summarize_results(plan.task, all_results, partial=partial, stopped_at=stopped_at)
     plan.summary = summary
 
     # Сохранить в историю задач
@@ -180,6 +188,8 @@ def execute_plan(plan: ExecutionPlan, dispatcher, ltm=None) -> str:
             )
         except Exception as e:
             logger.warning("Planner: не удалось сохранить историю задачи: %s", e)
+    else:
+        logger.info("Planner: ltm не передан, история задачи не сохранена.")
 
     return summary
 
@@ -222,7 +232,7 @@ def _parse_plan_response(task: str, raw: str) -> ExecutionPlan:
     return ExecutionPlan(task=data.get("task", task), steps=steps)
 
 
-def _summarize_results(task: str, results_text: str) -> str:
+def _summarize_results(task: str, results_text: str, partial: bool = False, stopped_at: int | None = None) -> str:
     """Суммаризировать результаты выполнения плана через LLM."""
     try:
         from jarvis.core.brain import Brain
@@ -234,6 +244,12 @@ def _summarize_results(task: str, results_text: str) -> str:
         prompt = (
             f"Пользователь просил: «{task}»\n\n"
             f"Я выполнил следующие шаги:\n\n{results_text}\n\n"
+        )
+        
+        if partial:
+            prompt += f"ПРИМЕЧАНИЕ: План не был завершён полностью. Выполнение прервано на шаге {stopped_at} из-за ошибки. Обязательно упомяни об этом пользователю в итоге.\n\n"
+
+        prompt += (
             f"Подведи итог на русском языке, кратко и чётко. "
             f"Отвечай от лица ИИ-ассистента JARVIS."
         )

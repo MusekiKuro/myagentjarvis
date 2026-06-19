@@ -82,17 +82,28 @@ def open_app(name: str) -> str:
         Сообщение об успехе или ошибке.
     """
     key = name.strip().lower()
-    target = APP_ALIASES.get(key, name.strip())
+    target = APP_ALIASES.get(key)
+
+    if target is None:
+        available = ", ".join(sorted(APP_ALIASES.keys()))
+        logger.error("apps.open_app: неизвестное приложение %r", name)
+        return (
+            f"Не знаю приложение «{name}». "
+            f"Доступны: {available[:200]}..."
+        )
+
     logger.info("apps.open_app: %r → %r", name, target)
 
     try:
         if target.endswith(":"):
             # URI-протокол: whatsapp:, tg:, discord:
-            os.system(f"start {target}")
+            os.startfile(target)
             return f"Приложение запущено: {name}."
         else:
-            subprocess.Popen(target, shell=True)
+            subprocess.Popen([target], shell=False)
             return f"Приложение запущено: {name}."
+    except FileNotFoundError:
+        return f"Приложение «{name}» не найдено по пути {target}"
     except Exception as e:
         logger.error("apps.open_app: ошибка: %s", e)
         return f"Ошибка запуска {name!r}: {e}"
@@ -129,16 +140,18 @@ def close_app(name: str) -> str:
         Сообщение об успехе или ошибке.
     """
     key = name.strip().lower()
-    target = APP_ALIASES.get(key, name.strip())
-    # Убрать URI-суффикс (whatsapp: → не подходит для taskkill)
-    if target.endswith(":"):
-        target = key  # Попробуем имя как есть
+    target = APP_ALIASES.get(key)
 
-    # Убедиться что есть .exe
-    if not target.endswith(".exe") and "." not in target:
-        target_exe = target + ".exe"
+    if target is None:
+        return f"Не знаю приложение «{name}». Закрытие разрешено только для известных приложений."
+
+    # Извлекаем имя исполняемого файла для taskkill
+    if target.endswith(":"):
+        target_exe = key + ".exe"
     else:
-        target_exe = target
+        target_exe = os.path.basename(target)
+        if not target_exe.endswith(".exe"):
+            target_exe += ".exe"
 
     logger.info("apps.close_app: taskkill /IM %s", target_exe)
     try:

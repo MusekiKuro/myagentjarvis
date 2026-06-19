@@ -70,16 +70,13 @@ def run_command(cmd: str) -> str:
 
     from jarvis import config
     if config.REQUIRE_ACTION_CONFIRMATION:
-        if _voice_confirm is not None:
-            if not _voice_confirm.ask(f"Сэр, хочу выполнить команду терминала: {cmd}. Разрешаете?"):
-                logger.info("Executor: Команда отклонена пользователем.")
-                return "Команда отменена."
-        else:
-            # Fallback: консоль (VoiceConfirm ещё не инициализирован)
-            print(f"\n[ВНИМАНИЕ] Джарвис хочет выполнить команду: {cmd}")
-            ans = input("Разрешить? [y/N]: ").strip().lower()
-            if ans != 'y':
-                return "Команда отменена."
+        if _voice_confirm is None:
+            logger.error("Executor: VoiceConfirm не инициализирован, опасная команда отменена.")
+            return "Действие отменено: голосовое подтверждение недоступно."
+            
+        if not _voice_confirm.ask(f"Сэр, хочу выполнить команду терминала: {cmd}. Разрешаете?"):
+            logger.info("Executor: Команда отклонена пользователем.")
+            return "Действие отменено пользователем."
 
     logger.info("Executor: Выполнение команды %r", cmd)
 
@@ -129,15 +126,13 @@ def run_python(code: str) -> str:
 
     from jarvis import config
     if config.REQUIRE_ACTION_CONFIRMATION:
-        if _voice_confirm is not None:
-            if not _voice_confirm.ask("Сэр, хочу запустить Python-код. Разрешаете?"):
-                logger.info("Executor: Python-код отклонён пользователем.")
-                return "Код отменён."
-        else:
-            print(f"\n[ВНИМАНИЕ] Джарвис хочет запустить Python-код:\n{code}\n")
-            ans = input("Разрешить? [y/N]: ").strip().lower()
-            if ans != 'y':
-                return "Код отменён."
+        if _voice_confirm is None:
+            logger.error("Executor: VoiceConfirm не инициализирован, опасный python-код отменен.")
+            return "Действие отменено: голосовое подтверждение недоступно."
+            
+        if not _voice_confirm.ask("Сэр, хочу запустить Python-код. Разрешаете?"):
+            logger.info("Executor: Python-код отклонён пользователем.")
+            return "Действие отменено пользователем."
 
     logger.info("Executor: Запуск Python-кода")
 

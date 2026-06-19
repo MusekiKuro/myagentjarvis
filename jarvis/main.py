@@ -356,6 +356,7 @@ def _main_loop(components: dict[str, Any]) -> None:
                     response_gen = brain.get_response_with_retry(
                         user_text=current_input,
                         long_term_context=long_ctx,
+                        tools_prompt=tools_prompt,
                         max_attempts=3,
                         stream=True,
                     )

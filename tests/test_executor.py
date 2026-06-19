@@ -15,40 +15,40 @@ from jarvis.core.executor import (
 class TestOpenApp:
     """Tests for application opening helper."""
 
-    @patch("os.system")
+    @patch("os.startfile")
     @patch("subprocess.Popen")
     def test_open_app_known_protocol(self, mock_popen, mock_system):
-        """Known apps with protocols should use os.system."""
+        """Known apps with protocols should use os.startfile."""
         res = open_app("whatsapp")
         assert "запущено: whatsapp" in res
-        mock_system.assert_called_once_with("start whatsapp:")
+        mock_system.assert_called_once_with("whatsapp:")
         mock_popen.assert_not_called()
 
-    @patch("os.system")
+    @patch("os.startfile")
     @patch("subprocess.Popen")
     def test_open_app_known_executable(self, mock_popen, mock_system):
-        """Known apps with executables should use subprocess.Popen."""
+        """Known apps with executables should use subprocess.Popen with shell=False."""
         res = open_app("notepad")
         assert "запущено: notepad" in res
-        mock_popen.assert_called_once_with("notepad.exe", shell=True)
+        mock_popen.assert_called_once_with(["notepad.exe"], shell=False)
         mock_system.assert_not_called()
 
-    @patch("os.system")
+    @patch("os.startfile")
     @patch("subprocess.Popen")
     def test_open_app_unknown(self, mock_popen, mock_system):
-        """Unknown apps should fallback to trying subprocess.Popen."""
+        """Unknown apps should be rejected (allowlist behavior)."""
         res = open_app("my_custom_app.exe")
-        assert "запущено: my_custom_app.exe" in res
-        mock_popen.assert_called_once_with("my_custom_app.exe", shell=True)
+        assert "Не знаю приложение" in res
+        mock_popen.assert_not_called()
         mock_system.assert_not_called()
 
     @patch("subprocess.Popen")
     def test_open_app_error(self, mock_popen):
         """Errors during launching should be captured and returned."""
-        mock_popen.side_effect = OSError("File not found")
-        res = open_app("nonexistent_app")
+        mock_popen.side_effect = Exception("Some arbitrary error")
+        res = open_app("notepad")
         assert "Ошибка запуска" in res
-        assert "File not found" in res
+        assert "Some arbitrary error" in res
 
 
 class TestOpenUrl:

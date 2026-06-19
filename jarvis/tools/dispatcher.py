@@ -151,7 +151,7 @@ class ToolDispatcher:
                 description="Открыть приложение или программу.",
                 parameters={"name": "название или псевдоним приложения (обязательный)"},
                 handler=apps_mod.open_app,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="apps.open_url",
@@ -165,7 +165,7 @@ class ToolDispatcher:
                 description="Закрыть запущенное приложение.",
                 parameters={"name": "имя процесса или приложения (обязательный)"},
                 handler=apps_mod.close_app,
-                dangerous=False,
+                dangerous=True,
             ))
         except ImportError:
             logger.warning("ToolDispatcher: apps недоступен.")
@@ -178,7 +178,7 @@ class ToolDispatcher:
                 description="Установить громкость системы (0-100).",
                 parameters={"level": "уровень громкости 0-100 (обязательный)"},
                 handler=sys_mod.set_volume,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="system.get_volume",
@@ -192,7 +192,7 @@ class ToolDispatcher:
                 description="Установить яркость экрана (0-100).",
                 parameters={"level": "уровень яркости 0-100 (обязательный)"},
                 handler=sys_mod.set_brightness,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="system.get_brightness",
@@ -233,7 +233,7 @@ class ToolDispatcher:
                 description="Записать текст в буфер обмена.",
                 parameters={"text": "текст для записи в буфер обмена (обязательный)"},
                 handler=clip_mod.set_clipboard,
-                dangerous=False,
+                dangerous=True,
             ))
         except ImportError:
             logger.warning("ToolDispatcher: clipboard недоступен (pyperclip не установлен).")
@@ -246,7 +246,7 @@ class ToolDispatcher:
                 description="Открыть страницу в браузере по URL.",
                 parameters={"url": "адрес страницы (обязательный)"},
                 handler=browser_mod.open_page,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="browser.get_text",
@@ -260,7 +260,7 @@ class ToolDispatcher:
                 description="Кликнуть на элемент страницы по CSS-селектору.",
                 parameters={"selector": "CSS-селектор элемента (обязательный)"},
                 handler=browser_mod.click_element,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="browser.fill",
@@ -270,14 +270,14 @@ class ToolDispatcher:
                     "text": "текст для ввода (обязательный)",
                 },
                 handler=browser_mod.fill_form,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="browser.screenshot",
                 description="Сделать скриншот текущей страницы браузера.",
                 parameters={"save_path": "путь для сохранения PNG (необязательный)"},
                 handler=browser_mod.screenshot,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="browser.search",
@@ -307,7 +307,7 @@ class ToolDispatcher:
                     "count": "количество сообщений, по умолчанию 5 (необязательный)",
                 },
                 handler=msg_mod.whatsapp_get_messages,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="messenger.whatsapp_send",
@@ -327,7 +327,7 @@ class ToolDispatcher:
                     "count": "количество сообщений, по умолчанию 5 (необязательный)",
                 },
                 handler=msg_mod.telegram_get_messages,
-                dangerous=False,
+                dangerous=True,
             ))
         except ImportError:
             logger.warning("ToolDispatcher: messenger недоступен (playwright не установлен).")
@@ -351,7 +351,7 @@ class ToolDispatcher:
                     "duration": "время перемещения в секундах, по умолчанию 0.5"
                 },
                 handler=gui_mod.move_mouse,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="gui.click",
@@ -397,7 +397,7 @@ class ToolDispatcher:
                 description="Сделать скриншот экрана и проанализировать, что на нём происходит.",
                 parameters={"prompt": "вопрос о том, что нужно найти на экране (по умолчанию 'Что на экране?')"},
                 handler=vision_mod.analyze_screen,
-                dangerous=False,
+                dangerous=True,
             ))
         except ImportError:
             logger.warning("ToolDispatcher: vision недоступен.")
@@ -413,7 +413,7 @@ class ToolDispatcher:
                     "unread_only": "только непрочитанные (true/false, по умолчанию true)"
                 },
                 handler=email_mod.read_emails,
-                dangerous=False,
+                dangerous=True,
             ))
             self.register(ToolSpec(
                 name="email.send",
@@ -436,6 +436,28 @@ class ToolDispatcher:
 
             def _run_plan(task: str) -> str:
                 plan = planner_mod.create_plan(task, self)
+                
+                # Check for dangerous tools in the plan
+                has_dangerous = False
+                dangerous_tools = []
+                for step in plan.steps:
+                    spec = self.tools.get(step.tool)
+                    if spec and spec.dangerous:
+                        has_dangerous = True
+                        dangerous_tools.append(step.tool)
+                
+                if has_dangerous:
+                    from ..core.confirm import get_voice_confirm
+                    vc = get_voice_confirm()
+                    if vc is None:
+                        import logging
+                        logging.getLogger(__name__).error("ToolDispatcher: VoiceConfirm не инициализирован, опасный план отменен.")
+                        return "Действие отменено: голосовое подтверждение недоступно, а план содержит опасные шаги."
+                    
+                    question = f"Сэр, план задачи '{task}' включает опасные инструменты: {', '.join(set(dangerous_tools))}. Разрешаете выполнение плана?"
+                    if not vc.ask(question):
+                        return "Действие отменено пользователем."
+
                 return planner_mod.execute_plan(plan, self)
 
             self.register(ToolSpec(
@@ -557,19 +579,19 @@ class ToolDispatcher:
         if spec.dangerous:
             from ..core.confirm import get_voice_confirm
             vc = get_voice_confirm()
-            if vc is not None:
-                params_str = ", ".join(f"{k}={v!r}" for k, v in tool_call.params.items())
-                question = (
-                    f"Сэр, хочу выполнить {spec.description.rstrip('.')} "
-                    f"с параметрами: {params_str}. Разрешаете?"
+            if vc is None:
+                logger.error("ToolDispatcher: VoiceConfirm не инициализирован, опасное действие отменено.")
+                return (
+                    "Действие отменено: голосовое подтверждение "
+                    "недоступно, а инструмент помечен как опасный."
                 )
-                if not vc.ask(question):
-                    return "Действие отменено пользователем."
-            else:
-                # Fallback: нет голосового подтверждения — разрешаем (VoiceConfirm не инициализирован)
-                logger.warning(
-                    "ToolDispatcher: VoiceConfirm не инициализирован, пропускаем подтверждение."
-                )
+            params_str = ", ".join(f"{k}={v!r}" for k, v in tool_call.params.items())
+            question = (
+                f"Сэр, хочу выполнить {spec.description.rstrip('.')} "
+                f"с параметрами: {params_str}. Разрешаете?"
+            )
+            if not vc.ask(question):
+                return "Действие отменено пользователем."
 
         # Выполнить инструмент
         logger.info("ToolDispatcher: выполняю %r с params=%r", tool_call.tool, tool_call.params)

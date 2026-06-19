@@ -31,8 +31,19 @@ _CONFIRM_WORDS: frozenset[str] = frozenset({
 _DENY_WORDS: frozenset[str] = frozenset({
     "нет", "отмена", "стоп", "не надо", "отставить", "no",
     "cancel", "отменить", "запрети", "запрещаю", "откажи",
-    "откажись", "не делай", "не выполняй",
+    "откажись", "не делай", "не выполняй", "не давай",
+    "ни в коем случае", "отказываю",
 })
+
+import re
+_DENY_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(w) for w in sorted(_DENY_WORDS, key=len, reverse=True)) + r')\b',
+    re.IGNORECASE
+)
+_CONFIRM_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(w) for w in sorted(_CONFIRM_WORDS, key=len, reverse=True)) + r')\b',
+    re.IGNORECASE
+)
 
 
 class VoiceConfirm:
@@ -124,14 +135,13 @@ class VoiceConfirm:
         if not text:
             return False
 
-        words = set(text.split())
-        # Проверяем вхождение любого слова из словарей
-        if words & _CONFIRM_WORDS:
-            logger.info("VoiceConfirm: подтверждение.")
-            return True
-        if words & _DENY_WORDS:
+        # Отказ проверяем ПЕРВЫМ
+        if _DENY_PATTERN.search(text):
             logger.info("VoiceConfirm: отказ.")
             return False
+        if _CONFIRM_PATTERN.search(text):
+            logger.info("VoiceConfirm: подтверждение.")
+            return True
 
         # Фраза произнесена, но не распознана как да/нет
         logger.info("VoiceConfirm: ответ не распознан (%r).", text)

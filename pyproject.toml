@@ -10,10 +10,6 @@ requires-python = ">=3.11"
 dependencies = [
     "requests",
     "python-dotenv",
-]
-
-[project.optional-dependencies]
-agent = [
     "duckduckgo-search>=7.0.0",
     "pycaw>=20240210",
     "screen-brightness-control>=0.23.0",
