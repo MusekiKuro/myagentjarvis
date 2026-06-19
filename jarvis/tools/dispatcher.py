@@ -331,6 +331,103 @@ class ToolDispatcher:
         except ImportError:
             logger.warning("ToolDispatcher: messenger недоступен (playwright не установлен).")
 
+        # --- GUI Automation ---
+        try:
+            from . import gui as gui_mod
+            self.register(ToolSpec(
+                name="gui.mouse_pos",
+                description="Получить текущие координаты курсора мыши на экране.",
+                parameters={},
+                handler=gui_mod.get_mouse_position,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="gui.mouse_move",
+                description="Переместить мышь на указанные координаты x, y.",
+                parameters={
+                    "x": "координата X (обязательный)",
+                    "y": "координата Y (обязательный)",
+                    "duration": "время перемещения в секундах, по умолчанию 0.5"
+                },
+                handler=gui_mod.move_mouse,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="gui.click",
+                description="Кликнуть мышью. Требует голосового подтверждения.",
+                parameters={
+                    "x": "координата X (необязательный, по умолчанию там где курсор)",
+                    "y": "координата Y (необязательный)",
+                    "button": "left, right или middle (по умолчанию left)",
+                    "clicks": "количество кликов (по умолчанию 1)"
+                },
+                handler=gui_mod.click,
+                dangerous=True,
+            ))
+            self.register(ToolSpec(
+                name="gui.type",
+                description="Ввести текст с клавиатуры. Требует голосового подтверждения.",
+                parameters={"text": "текст для ввода (обязательный)"},
+                handler=gui_mod.type_text,
+                dangerous=True,
+            ))
+            self.register(ToolSpec(
+                name="gui.press",
+                description="Нажать клавишу (enter, esc, win и т.д.). Требует голосового подтверждения.",
+                parameters={"key": "имя клавиши (обязательный)"},
+                handler=gui_mod.press_key,
+                dangerous=True,
+            ))
+            self.register(ToolSpec(
+                name="gui.hotkey",
+                description="Нажать сочетание клавиш (ctrl, c). Требует голосового подтверждения.",
+                parameters={}, # В dispatcher не так просто передать *args через JSON параметры, сделаем обертку
+                handler=lambda **kwargs: gui_mod.hotkey(*kwargs.values()),
+                dangerous=True,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: gui недоступен (pyautogui не установлен).")
+
+        # --- Vision (Анализ экрана) ---
+        try:
+            from . import vision as vision_mod
+            self.register(ToolSpec(
+                name="vision.analyze_screen",
+                description="Сделать скриншот экрана и проанализировать, что на нём происходит.",
+                parameters={"prompt": "вопрос о том, что нужно найти на экране (по умолчанию 'Что на экране?')"},
+                handler=vision_mod.analyze_screen,
+                dangerous=False,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: vision недоступен.")
+
+        # --- Email ---
+        try:
+            from . import email_tool as email_mod
+            self.register(ToolSpec(
+                name="email.read",
+                description="Прочитать последние электронные письма (IMAP).",
+                parameters={
+                    "count": "количество писем (по умолчанию 5)",
+                    "unread_only": "только непрочитанные (true/false, по умолчанию true)"
+                },
+                handler=email_mod.read_emails,
+                dangerous=False,
+            ))
+            self.register(ToolSpec(
+                name="email.send",
+                description="Отправить электронное письмо (SMTP). Требует голосового подтверждения.",
+                parameters={
+                    "to_address": "email получателя (обязательный)",
+                    "subject": "тема письма (обязательный)",
+                    "body": "текст письма (обязательный)"
+                },
+                handler=email_mod.send_email,
+                dangerous=True,
+            ))
+        except ImportError:
+            logger.warning("ToolDispatcher: email_tool недоступен.")
+
         # --- Task Planner ---
         # Регистрируем через замыкание, т.к. planner нужен сам dispatcher
         try:

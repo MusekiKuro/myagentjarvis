@@ -20,6 +20,8 @@ agent = [
     "psutil>=6.0.0",
     "pyperclip>=1.9.0",
     "playwright>=1.40.0",
+    "pyautogui>=0.9.54",
+    "Pillow>=10.0.0",
 ]
 # Note: torch, openwakeword, pyaudio, faster-whisper, sounddevice need special install
 [project.scripts]
